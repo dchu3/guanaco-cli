@@ -33,9 +33,25 @@ function boolEnv(name: string, def: boolean): boolean {
 }
 
 export function loadConfig(): AppConfig {
+  let ollamaModel = process.env.OLLAMA_MODEL?.trim() || 'llama3.2';
+
+  // Check for --model override in process.argv
+  const modelArgIndex = process.argv.indexOf('--model');
+  if (modelArgIndex !== -1 && modelArgIndex + 1 < process.argv.length) {
+    const val = process.argv[modelArgIndex + 1].trim();
+    if (val) ollamaModel = val;
+  } else {
+    // Handle --model=value format
+    const modelFlag = process.argv.find((arg) => arg.startsWith('--model='));
+    if (modelFlag) {
+      const val = modelFlag.split('=')[1].trim();
+      if (val) ollamaModel = val;
+    }
+  }
+
   return {
     ollamaBaseUrl: (process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/+$/, ''),
-    ollamaModel: process.env.OLLAMA_MODEL?.trim() || 'llama3.2',
+    ollamaModel,
     systemPrompt: process.env.SYSTEM_PROMPT?.trim() || undefined,
     maxHistoryMessages: intEnv('MAX_HISTORY_MESSAGES', 20, { min: 0 }),
     requestTimeoutMs: intEnv('REQUEST_TIMEOUT_MS', 60_000, { min: 1000 }),
