@@ -1,10 +1,8 @@
 import { loadConfig } from './config.js';
 import { OllamaClient } from './ollama.js';
 import { HistoryStore } from './history.js';
-import { startTelegramBot } from './telegram.js';
 import { startCli } from './cli.js';
 import { buildToolRegistry } from './tools.js';
-import { maskPii } from './util/log.js';
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
@@ -23,30 +21,11 @@ async function main(): Promise<void> {
   const tools = buildToolRegistry({});
 
   // eslint-disable-next-line no-console
-  console.log(
-    `telegram-local-llm-bot · model=${cfg.ollamaModel} · ollama=${cfg.ollamaBaseUrl} · ` +
-      `telegramEnabled=${cfg.telegramEnabled}` +
-      (cfg.telegramEnabled ? ` · allowedUser=${maskPii(cfg.allowedUserId)}` : ''),
-  );
-
-  let stopBot: ((reason?: string) => void) | undefined;
-
-  if (cfg.telegramEnabled && cfg.telegramBotToken && cfg.allowedUserId !== undefined) {
-    const running = await startTelegramBot({
-      token: cfg.telegramBotToken,
-      allowedUserId: cfg.allowedUserId,
-      ollama,
-      history,
-      tools,
-      streamEnabled: cfg.streamEnabled,
-    });
-    stopBot = running.stop;
-  }
+  console.log(`guanaco-cli · model=${cfg.ollamaModel} · ollama=${cfg.ollamaBaseUrl}`);
 
   const shutdown = (signal: string) => () => {
     // eslint-disable-next-line no-console
     console.log(`\nReceived ${signal}, stopping...`);
-    if (stopBot) stopBot(signal);
     setTimeout(() => process.exit(0), 250);
   };
 
