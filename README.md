@@ -36,6 +36,12 @@ For a production-style run:
 ```bash
 npm run build
 npm start
+
+# Override the model from .env using a flag
+npm start -- --model qwen2.5-coder:3b
+
+# Or simply as a positional argument
+npm start qwen2.5-coder:3b
 ```
 
 ## Environment variables
@@ -43,7 +49,7 @@ npm start
 | Variable               | Required | Default                  | Notes                                  |
 | ---------------------- | :------: | ------------------------ | -------------------------------------- |
 | `OLLAMA_BASE_URL`      |          | `http://localhost:11434` | Ollama HTTP endpoint                   |
-| `OLLAMA_MODEL`         |          | `llama3.2`               | Must be pulled (`ollama pull <model>`) |
+| `OLLAMA_MODEL`         |          | `llama3.2`               | Must be pulled. Overridable via `--model` flag or positional arg. |
 | `SYSTEM_PROMPT`        |          | _(unset)_                | Prepended to every conversation if set |
 | `MAX_HISTORY_MESSAGES` |          | `20`                     | Cap for non-system messages            |
 | `REQUEST_TIMEOUT_MS`   |          | `60000`                  | Ollama request timeout                 |
