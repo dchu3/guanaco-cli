@@ -46,6 +46,12 @@ export function loadConfig(): AppConfig {
     if (modelFlag) {
       const val = modelFlag.split('=')[1].trim();
       if (val) ollamaModel = val;
+    } else {
+      // Fallback: use the first positional argument as the model if it's not a flag
+      const positionalModel = process.argv.slice(2).find((arg) => !arg.startsWith('-'));
+      if (positionalModel) {
+        ollamaModel = positionalModel.trim();
+      }
     }
   }
 
