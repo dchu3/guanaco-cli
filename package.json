@@ -13,7 +13,9 @@
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\""
   },
   "dependencies": {
-    "enquirer": "^2.4.1"
+    "enquirer": "^2.4.1",
+    "ora": "^9.4.0",
+    "picocolors": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",

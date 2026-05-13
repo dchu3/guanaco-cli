@@ -33,8 +33,8 @@ if is_allowed "$BASE_CMD"; then
     # Given the constraint to use an allowlist, we will run the command as a single execution.
     
     # Check for shell metacharacters that could be used for injection
-    if [[ "$FULL_COMMAND" =~ [";"\|\&\|\>\|\<] ]]; then
-        echo "Error: Command contains forbidden characters (; & | > <)."
+    if [[ "$FULL_COMMAND" =~ [";"\|\&\|\>\|\<\|\$\(\|\)\`] ]]; then
+        echo "Error: Command contains forbidden characters (; & | > < $ ( ) \` )."
         exit 1
     fi
 
