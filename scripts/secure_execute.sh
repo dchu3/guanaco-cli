@@ -47,7 +47,7 @@ if is_allowed "$BASE_CMD"; then
     # Security: Validate ollama subcommands
     if [[ "$BASE_CMD" == "ollama" ]]; then
         SUB_CMD=$(echo "$FULL_COMMAND" | awk '{print $2}')
-        SAFE_OLLAMA_CMDS=("list" "ps" "show" "help" "run")
+        SAFE_OLLAMA_CMDS=("list" "ps" "show" "help" "run" "stop")
         is_safe_ollama=1
         for safe in "${SAFE_OLLAMA_CMDS[@]}"; do
             if [[ "$SUB_CMD" == "$safe" ]]; then
