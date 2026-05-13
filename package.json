@@ -1,8 +1,8 @@
 {
-  "name": "telegram-local-llm-bot",
+  "name": "guanaco-cli",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Minimal Telegram bot that proxies messages to a local LLM via Ollama. Single-user, in-memory history, expansion-ready.",
+  "description": "Interactive CLI for connecting to local LLMs via Ollama. Guanaco is a wild version of Llama.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -13,8 +13,7 @@
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\""
   },
   "dependencies": {
-    "enquirer": "^2.4.1",
-    "telegraf": "^4.16.3"
+    "enquirer": "^2.4.1"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
