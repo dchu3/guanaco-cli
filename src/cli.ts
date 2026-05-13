@@ -76,7 +76,6 @@ export async function startCli(deps: CliDeps): Promise<void> {
       }
 
       deps.history.push(CLI_USER_ID, { role: 'user', content: text });
-      process.stdout.write(`\n${pc.blue(pc.bold('AI'))}: `);
 
       const spinner = ora({
         text: pc.dim('Thinking...'),
@@ -90,6 +89,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
         const handleDelta = (chunk: string) => {
           if (spinner.isSpinning) {
             spinner.stop();
+            process.stdout.write(`\n${pc.blue(pc.bold('AI'))}: `);
           }
           fullResponse += chunk;
           process.stdout.write(chunk);
@@ -103,6 +103,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
 
         if (spinner.isSpinning) {
           spinner.stop();
+          process.stdout.write(`\n${pc.blue(pc.bold('AI'))}: `);
         }
 
         if (!streamEnabled) {
