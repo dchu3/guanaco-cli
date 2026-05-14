@@ -49,6 +49,9 @@ npm start qwen2.5-coder:3b
 | ---------------------- | :------: | ------------------------ | -------------------------------------- |
 | `OLLAMA_BASE_URL`      |          | `http://localhost:11434` | Ollama HTTP endpoint                   |
 | `OLLAMA_MODEL`         |          | `llama3.2`               | Must be pulled. Overridable via `--model` flag or positional arg. |
+| `OLLAMA_TEMPERATURE`   |          | `0.8`                    | Overridable via `--temperature` flag |
+| `OLLAMA_TOP_P`         |          | `0.9`                    | Overridable via `--top-p` flag       |
+| `OLLAMA_NUM_CTX`       |          | `2048`                   | Overridable via `--num-ctx` flag     |
 | `SYSTEM_PROMPT`        |          | _(unset)_                | Prepended to every prompt if set       |
 | `REQUEST_TIMEOUT_MS`   |          | `60000`                  | Ollama request timeout                 |
 | `STREAM_ENABLED`       |          | `1`                      | Stream the reply incrementally         |

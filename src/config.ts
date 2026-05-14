@@ -4,6 +4,9 @@ export interface AppConfig {
   systemPrompt?: string;
   requestTimeoutMs: number;
   streamEnabled: boolean;
+  temperature?: number;
+  topP?: number;
+  numCtx?: number;
 }
 
 function intEnv(name: string, def: number, opts: { min?: number; max?: number } = {}): number {
@@ -22,6 +25,16 @@ function intEnv(name: string, def: number, opts: { min?: number; max?: number } 
   return n;
 }
 
+function floatEnv(name: string, def?: number): number | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return def;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    throw new Error(`Env var ${name} must be a number, got: ${raw}`);
+  }
+  return n;
+}
+
 function boolEnv(name: string, def: boolean): boolean {
   const raw = process.env[name];
   if (raw === undefined || raw === '') return def;
@@ -31,27 +44,51 @@ function boolEnv(name: string, def: boolean): boolean {
   throw new Error(`Env var ${name} must be a boolean (1/0/true/false), got: ${raw}`);
 }
 
+function getArgValue(flag: string): string | undefined {
+  const index = process.argv.indexOf(flag);
+  if (index !== -1 && index + 1 < process.argv.length) {
+    const val = process.argv[index + 1].trim();
+    if (val && !val.startsWith('-')) return val;
+  }
+  const prefix = `${flag}=`;
+  const arg = process.argv.find((a) => a.startsWith(prefix));
+  if (arg) return arg.slice(prefix.length).trim();
+  return undefined;
+}
+
 export function loadConfig(): AppConfig {
   let ollamaModel = process.env.OLLAMA_MODEL?.trim() || 'llama3.2';
 
-  // Check for --model override in process.argv
-  const modelArgIndex = process.argv.indexOf('--model');
-  if (modelArgIndex !== -1 && modelArgIndex + 1 < process.argv.length) {
-    const val = process.argv[modelArgIndex + 1].trim();
-    if (val) ollamaModel = val;
+  const modelArg = getArgValue('--model');
+  if (modelArg) {
+    ollamaModel = modelArg;
   } else {
-    // Handle --model=value format
-    const modelFlag = process.argv.find((arg) => arg.startsWith('--model='));
-    if (modelFlag) {
-      const val = modelFlag.split('=')[1].trim();
-      if (val) ollamaModel = val;
-    } else {
-      // Fallback: use the first positional argument as the model if it's not a flag
-      const positionalModel = process.argv.slice(2).find((arg) => !arg.startsWith('-'));
-      if (positionalModel) {
-        ollamaModel = positionalModel.trim();
-      }
+    // Fallback: use the first positional argument as the model if it's not a flag
+    const positionalModel = process.argv.slice(2).find((arg) => !arg.startsWith('-'));
+    if (positionalModel) {
+      ollamaModel = positionalModel.trim();
     }
+  }
+
+  const temperatureRaw = getArgValue('--temperature');
+  const temperature =
+    temperatureRaw !== undefined
+      ? Number(temperatureRaw)
+      : floatEnv('OLLAMA_TEMPERATURE');
+  if (temperature !== undefined && !Number.isFinite(temperature)) {
+    throw new Error(`Invalid temperature value: ${temperatureRaw}`);
+  }
+
+  const topPRaw = getArgValue('--top-p');
+  const topP = topPRaw !== undefined ? Number(topPRaw) : floatEnv('OLLAMA_TOP_P');
+  if (topP !== undefined && !Number.isFinite(topP)) {
+    throw new Error(`Invalid top-p value: ${topPRaw}`);
+  }
+
+  const numCtxRaw = getArgValue('--num-ctx');
+  const numCtx = numCtxRaw !== undefined ? Number(numCtxRaw) : floatEnv('OLLAMA_NUM_CTX');
+  if (numCtx !== undefined && (!Number.isFinite(numCtx) || !Number.isInteger(numCtx))) {
+    throw new Error(`Invalid num-ctx value: ${numCtxRaw}`);
   }
 
   return {
@@ -60,5 +97,8 @@ export function loadConfig(): AppConfig {
     systemPrompt: process.env.SYSTEM_PROMPT?.trim() || undefined,
     requestTimeoutMs: intEnv('REQUEST_TIMEOUT_MS', 60_000, { min: 1000 }),
     streamEnabled: boolEnv('STREAM_ENABLED', true),
+    temperature,
+    topP,
+    numCtx,
   };
 }
