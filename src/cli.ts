@@ -3,19 +3,17 @@ import pc from 'picocolors';
 import ora from 'ora';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { OllamaClient } from './ollama.js';
-import type { HistoryStore } from './history.js';
+import type { OllamaClient, Message } from './ollama.js';
 import type { ToolRegistry } from './tools.js';
 
 export interface CliDeps {
   ollama: OllamaClient;
-  history: HistoryStore;
+  systemPrompt?: string;
   tools?: ToolRegistry;
   maxToolSteps?: number;
   streamEnabled?: boolean;
 }
 
-const CLI_USER_ID = 0;
 const execAsync = promisify(exec);
 
 export async function startCli(deps: CliDeps): Promise<void> {
@@ -45,9 +43,8 @@ export async function startCli(deps: CliDeps): Promise<void> {
         if (cmd === 'help') {
           showHelp();
         } else if (cmd === 'clear') {
-          deps.history.clear(CLI_USER_ID);
           // eslint-disable-next-line no-console
-          console.log(pc.cyan('\n🧹 Chat history cleared.\n'));
+          console.clear();
         } else if (cmd === 'model') {
           // eslint-disable-next-line no-console
           console.log(pc.cyan(`\n🤖 Current model: ${pc.bold(deps.ollama.currentModel)}\n`));
@@ -75,8 +72,6 @@ export async function startCli(deps: CliDeps): Promise<void> {
         continue;
       }
 
-      deps.history.push(CLI_USER_ID, { role: 'user', content: text });
-
       const spinner = ora({
         text: pc.dim('Thinking...'),
         color: 'cyan',
@@ -95,7 +90,13 @@ export async function startCli(deps: CliDeps): Promise<void> {
           process.stdout.write(chunk);
         };
 
-        const reply = await deps.ollama.chat(deps.history.get(CLI_USER_ID), {
+        const messages: Message[] = [];
+        if (deps.systemPrompt) {
+          messages.push({ role: 'system', content: deps.systemPrompt });
+        }
+        messages.push({ role: 'user', content: text });
+
+        const reply = await deps.ollama.chat(messages, {
           tools: deps.tools,
           maxToolSteps: deps.maxToolSteps,
           onAssistantDelta: streamEnabled ? handleDelta : undefined,
@@ -112,7 +113,6 @@ export async function startCli(deps: CliDeps): Promise<void> {
         }
 
         process.stdout.write('\n\n');
-        deps.history.push(CLI_USER_ID, { role: 'assistant', content: fullResponse });
       } catch (err) {
         if (spinner.isSpinning) {
           spinner.stop();
@@ -133,7 +133,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
 function showHelp() {
   const commands = [
     ['/help', 'Show this help message'],
-    ['/clear', 'Reset chat history'],
+    ['/clear', 'Clear the terminal screen'],
     ['/model', 'Show current model'],
     ['/execute', 'Execute a shell command (restricted)'],
     ['/exit', 'Exit the application'],

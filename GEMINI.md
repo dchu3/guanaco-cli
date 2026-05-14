@@ -5,7 +5,6 @@ An interactive CLI application that provides a direct interface to a local Large
 ### Core Architecture
 - **CLI Interface (`src/cli.ts`)**: An interactive terminal interface using `enquirer`. Features include command handling (`/help`, `/clear`, `/model`, `/execute`), and incremental message streaming.
 - **Ollama Client (`src/ollama.ts`)**: A custom client for the Ollama `/api/chat` endpoint. It handles both standard and streaming responses and supports generic tool-calling/dispatching loops. The model is configurable via `OLLAMA_MODEL`, the `--model` flag, or a positional CLI argument.
-- **History Management (`src/history.ts`)**: Manages per-user in-memory chat history with strict enforcement of user/assistant message alternation and size-based window trimming.
 - **Tooling Infrastructure (`src/tools.ts`)**: A generic registry and dispatcher for LLM tools.
 - **Configuration (`src/config.ts`)**: Robust environment variable and CLI argument parsing (`process.argv`) and validation using a strictly typed `AppConfig` interface.
 

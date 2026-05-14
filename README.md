@@ -7,11 +7,10 @@ No trading, no MCP, no payments — just `CLI ↔ Ollama`.
 ## Features
 
 - ☑ **CLI Interface**: Interactive terminal chat with streaming output.
-- ☑ Conversation memory (capped, with optional system prompt).
-- ☑ `/help`, `/clear`, `/model`, `/execute` commands.
+- `/help`, `/clear`, `/model`, `/execute` commands.
 - ☑ Secure shell command execution via restricted allowlist.
 - ☑ Configurable timeout, model, and base URL.
-- ☑ Tests for the Ollama client and history store.
+- ☑ Tests for the Ollama client.
 
 ## Prerequisites
 
@@ -50,8 +49,7 @@ npm start qwen2.5-coder:3b
 | ---------------------- | :------: | ------------------------ | -------------------------------------- |
 | `OLLAMA_BASE_URL`      |          | `http://localhost:11434` | Ollama HTTP endpoint                   |
 | `OLLAMA_MODEL`         |          | `llama3.2`               | Must be pulled. Overridable via `--model` flag or positional arg. |
-| `SYSTEM_PROMPT`        |          | _(unset)_                | Prepended to every conversation if set |
-| `MAX_HISTORY_MESSAGES` |          | `20`                     | Cap for non-system messages            |
+| `SYSTEM_PROMPT`        |          | _(unset)_                | Prepended to every prompt if set       |
 | `REQUEST_TIMEOUT_MS`   |          | `60000`                  | Ollama request timeout                 |
 | `STREAM_ENABLED`       |          | `1`                      | Stream the reply incrementally         |
 | `DEBUG`                |          | `0`                      | Set `1` for verbose logs to stderr     |
@@ -59,7 +57,7 @@ npm start qwen2.5-coder:3b
 ## Commands
 
 - `/help` — list commands
-- `/clear` — reset your chat history
+- `/clear` — clear the terminal screen
 - `/model` — show the configured model
 - `/execute <command>` — run a shell command (restricted via allowlist)
 - `/exit` — quit the application
@@ -74,7 +72,6 @@ src/
   config.ts     # env parsing & validation
   cli.ts        # interactive terminal interface
   ollama.ts     # local LLM client + tool-calling loop
-  history.ts    # in-memory history management
   tools.ts      # tool registry and dispatcher
   util/log.ts   # debug() helper
 scripts/
