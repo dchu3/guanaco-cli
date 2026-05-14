@@ -24,6 +24,7 @@ export interface OllamaClientOptions {
   model: string;
   timeoutMs: number;
   fetchImpl?: typeof fetch;
+  modelOptions?: Record<string, unknown>;
 }
 
 export interface ChatOptions {
@@ -69,12 +70,14 @@ export class OllamaClient {
   private readonly model: string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly modelOptions?: Record<string, unknown>;
 
   constructor(opts: OllamaClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
     this.model = opts.model;
     this.timeoutMs = opts.timeoutMs;
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.modelOptions = opts.modelOptions;
   }
 
   get currentModel(): string {
@@ -176,6 +179,7 @@ export class OllamaClient {
       stream: false,
     };
     if (tools && tools.length > 0) payload.tools = tools;
+    if (this.modelOptions) payload.options = this.modelOptions;
     const body = JSON.stringify(payload);
 
     const controller = new AbortController();
@@ -234,6 +238,7 @@ export class OllamaClient {
       stream: true,
     };
     if (tools && tools.length > 0) payload.tools = tools;
+    if (this.modelOptions) payload.options = this.modelOptions;
     const body = JSON.stringify(payload);
 
     const controller = new AbortController();

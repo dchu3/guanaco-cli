@@ -10,6 +10,11 @@ async function main(): Promise<void> {
     baseUrl: cfg.ollamaBaseUrl,
     model: cfg.ollamaModel,
     timeoutMs: cfg.requestTimeoutMs,
+    modelOptions: {
+      temperature: cfg.temperature,
+      top_p: cfg.topP,
+      num_ctx: cfg.numCtx,
+    },
   });
 
   const tools = buildToolRegistry({});
