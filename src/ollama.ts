@@ -11,7 +11,7 @@ export interface ToolCall {
   };
 }
 
-export interface ChatMessage {
+export interface Message {
   role: Role;
   content: string;
   tool_calls?: ToolCall[];
@@ -81,12 +81,12 @@ export class OllamaClient {
     return this.model;
   }
 
-  async chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<string> {
+  async chat(messages: Message[], options: ChatOptions = {}): Promise<string> {
     const tools = options.tools;
     const maxSteps = Math.max(0, options.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS);
     // Work on a local copy so we don't append tool_calls / tool messages to
     // the caller's history unless they choose to integrate them.
-    const working: ChatMessage[] = [...messages];
+    const working: Message[] = [...messages];
 
     for (let step = 0; step <= maxSteps; step++) {
       // On the final permitted step, suppress tool definitions so a
@@ -166,7 +166,7 @@ export class OllamaClient {
   }
 
   private async chatOnce(
-    messages: ChatMessage[],
+    messages: Message[],
     tools: ToolDefinition[] | undefined,
   ): Promise<{ content: string; tool_calls?: ToolCall[] }> {
     const url = `${this.baseUrl}/api/chat`;
@@ -223,7 +223,7 @@ export class OllamaClient {
   // Uses an idle-timeout (resets on each chunk) rather than an absolute
   // deadline so long-but-active streams don't get aborted mid-response.
   private async chatOnceStreaming(
-    messages: ChatMessage[],
+    messages: Message[],
     tools: ToolDefinition[] | undefined,
     options: ChatOptions,
   ): Promise<{ content: string; tool_calls?: ToolCall[] }> {

@@ -2,7 +2,6 @@ export interface AppConfig {
   ollamaBaseUrl: string;
   ollamaModel: string;
   systemPrompt?: string;
-  maxHistoryMessages: number;
   requestTimeoutMs: number;
   streamEnabled: boolean;
 }
@@ -59,7 +58,6 @@ export function loadConfig(): AppConfig {
     ollamaBaseUrl: (process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/+$/, ''),
     ollamaModel,
     systemPrompt: process.env.SYSTEM_PROMPT?.trim() || undefined,
-    maxHistoryMessages: intEnv('MAX_HISTORY_MESSAGES', 20, { min: 0 }),
     requestTimeoutMs: intEnv('REQUEST_TIMEOUT_MS', 60_000, { min: 1000 }),
     streamEnabled: boolEnv('STREAM_ENABLED', true),
   };

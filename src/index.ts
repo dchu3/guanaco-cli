@@ -1,6 +1,5 @@
 import { loadConfig } from './config.js';
 import { OllamaClient } from './ollama.js';
-import { HistoryStore } from './history.js';
 import { startCli } from './cli.js';
 import { buildToolRegistry } from './tools.js';
 
@@ -11,11 +10,6 @@ async function main(): Promise<void> {
     baseUrl: cfg.ollamaBaseUrl,
     model: cfg.ollamaModel,
     timeoutMs: cfg.requestTimeoutMs,
-  });
-
-  const history = new HistoryStore({
-    maxMessages: cfg.maxHistoryMessages,
-    systemPrompt: cfg.systemPrompt,
   });
 
   const tools = buildToolRegistry({});
@@ -34,7 +28,7 @@ async function main(): Promise<void> {
 
   await startCli({
     ollama,
-    history,
+    systemPrompt: cfg.systemPrompt,
     tools,
     streamEnabled: cfg.streamEnabled,
   });
