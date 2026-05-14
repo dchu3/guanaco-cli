@@ -17,10 +17,7 @@ export interface CliDeps {
 const execAsync = promisify(exec);
 
 export async function startCli(deps: CliDeps): Promise<void> {
-  // eslint-disable-next-line no-console
-  console.log(pc.cyan(pc.bold('\nWelcome to the Guanaco CLI! 🦙')));
-  // eslint-disable-next-line no-console
-  console.log(pc.dim('Type your message or use a command (e.g., /help).\n'));
+  showHeader(deps);
   showHelp();
 
   // eslint-disable-next-line no-constant-condition
@@ -45,6 +42,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
         } else if (cmd === 'clear') {
           // eslint-disable-next-line no-console
           console.clear();
+          showHeader(deps);
         } else if (cmd === 'model') {
           // eslint-disable-next-line no-console
           console.log(pc.cyan(`\n🤖 Current model: ${pc.bold(deps.ollama.currentModel)}\n`));
@@ -128,6 +126,20 @@ export async function startCli(deps: CliDeps): Promise<void> {
       console.error(`\n${pc.red(pc.bold('❌ Error:'))}`, pc.red(err instanceof Error ? err.message : String(err)));
     }
   }
+}
+
+function showHeader(deps: CliDeps) {
+  // eslint-disable-next-line no-console
+  console.log(pc.cyan(pc.bold('\nWelcome to the Guanaco CLI! 🦙')));
+  // eslint-disable-next-line no-console
+  console.log(
+    pc.dim('Model: ') +
+      pc.cyan(deps.ollama.currentModel) +
+      pc.dim(' | Streaming: ') +
+      pc.cyan(deps.streamEnabled !== false ? 'On' : 'Off')
+  );
+  // eslint-disable-next-line no-console
+  console.log(pc.dim('Type your message or use a command (e.g., /help).\n'));
 }
 
 function showHelp() {
