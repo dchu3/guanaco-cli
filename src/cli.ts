@@ -153,7 +153,14 @@ export async function startCli(deps: CliDeps): Promise<void> {
           if (stderr) {
             addMessage('system', chalk.yellow(stderr.trim()));
           }
-        } catch (err) {
+        } catch (err: unknown) {
+          const execError = err as { stdout?: string; stderr?: string; message?: string };
+          if (execError.stdout) {
+            addMessage('system', execError.stdout.trim());
+          }
+          if (execError.stderr) {
+            addMessage('system', chalk.yellow(execError.stderr.trim()));
+          }
           addMessage('system', chalk.red(`Error executing command: ${err instanceof Error ? err.message : String(err)}`));
         }
         statusContainer.clear();
