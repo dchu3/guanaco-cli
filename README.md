@@ -7,8 +7,7 @@ No trading, no MCP, no payments — just `CLI ↔ Ollama`.
 ## Features
 
 - ☑ **CLI Interface**: Interactive terminal chat with streaming output.
-- `/help`, `/clear`, `/model`, `/execute` commands.
-- ☑ Secure shell command execution via restricted allowlist.
+- `/help`, `/clear`, `/model` commands.
 - ☑ Configurable timeout, model, and base URL.
 - ☑ Tests for the Ollama client.
 
@@ -62,7 +61,6 @@ npm start qwen2.5-coder:3b
 - `/help` — list commands
 - `/clear` — clear the terminal screen
 - `/model` — show the configured model
-- `/execute <command>` — run a shell command (restricted via allowlist)
 - `/exit` — quit the application
 
 Any other text message is forwarded to the LLM.
@@ -77,8 +75,6 @@ src/
   ollama.ts     # local LLM client + tool-calling loop
   tools.ts      # tool registry and dispatcher
   util/log.ts   # debug() helper
-scripts/
-  secure_execute.sh # shell command restriction wrapper
 ```
 
 ## Scripts
