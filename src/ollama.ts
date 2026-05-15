@@ -67,7 +67,7 @@ const DEFAULT_MAX_TOOL_STEPS = 3;
 
 export class OllamaClient {
   private readonly baseUrl: string;
-  private readonly model: string;
+  private model: string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
   private readonly modelOptions?: Record<string, unknown>;
@@ -82,6 +82,10 @@ export class OllamaClient {
 
   get currentModel(): string {
     return this.model;
+  }
+
+  setModel(model: string): void {
+    this.model = model;
   }
 
   async chat(messages: Message[], options: ChatOptions = {}): Promise<string> {
