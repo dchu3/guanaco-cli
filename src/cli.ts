@@ -1,142 +1,164 @@
-import enquirer from 'enquirer';
-import pc from 'picocolors';
-import ora from 'ora';
+import {
+  TUI,
+  ProcessTerminal,
+  Container,
+  Markdown,
+  Editor,
+  Text,
+  Spacer,
+  type MarkdownTheme,
+  type EditorTheme,
+} from '@earendil-works/pi-tui';
+import chalk from 'chalk';
 import type { OllamaClient, Message } from './ollama.js';
 import type { ToolRegistry } from './tools.js';
 
 export interface CliDeps {
   ollama: OllamaClient;
-  systemPrompt?: string;
-  tools?: ToolRegistry;
-  maxToolSteps?: number;
-  streamEnabled?: boolean;
+  tools: ToolRegistry;
+  streamEnabled: boolean;
 }
+
+const THEME = {
+  accent: chalk.cyan,
+  muted: chalk.dim,
+  error: chalk.red,
+  success: chalk.green,
+  border: chalk.dim,
+};
+
+const MARKDOWN_THEME: MarkdownTheme = {
+  heading: (text: string) => chalk.bold.cyan(text),
+  link: (text: string) => chalk.blue.underline(text),
+  linkUrl: (text: string) => chalk.dim(text),
+  code: (text: string) => chalk.yellow(text),
+  codeBlock: (text: string) => text,
+  codeBlockBorder: (text: string) => chalk.dim(text),
+  quote: (text: string) => chalk.italic.dim(text),
+  quoteBorder: (text: string) => chalk.dim(text),
+  hr: (text: string) => chalk.dim(text),
+  listBullet: (text: string) => chalk.cyan(text),
+  bold: (text: string) => chalk.bold(text),
+  italic: (text: string) => chalk.italic(text),
+  strikethrough: (text: string) => chalk.strikethrough(text),
+  underline: (text: string) => chalk.underline(text),
+};
+
+const EDITOR_THEME: EditorTheme = {
+  borderColor: (text: string) => chalk.dim(text),
+  selectList: {
+    selectedPrefix: (text: string) => chalk.cyan('→ '),
+    selectedText: (text: string) => chalk.cyan(text),
+    description: (text: string) => chalk.dim(text),
+    scrollInfo: (text: string) => chalk.dim(text),
+    noMatch: (text: string) => chalk.red(text),
+  },
+};
 
 export async function startCli(deps: CliDeps): Promise<void> {
-  showHeader(deps);
-  showHelp();
+  const terminal = new ProcessTerminal();
+  const ui = new TUI(terminal);
 
-  // eslint-disable-next-line no-constant-condition
+  const headerContainer = new Container();
+  const chatContainer = new Container();
+  const statusContainer = new Container();
+  const editorContainer = new Container();
+
+  ui.addChild(headerContainer);
+  ui.addChild(chatContainer);
+  ui.addChild(statusContainer);
+  ui.addChild(new Spacer(1));
+  ui.addChild(editorContainer);
+
+  const editor = new Editor(ui, EDITOR_THEME, { paddingX: 1 });
+  editorContainer.addChild(editor);
+  ui.setFocus(editor);
+
+  headerContainer.addChild(new Spacer(1));
+  headerContainer.addChild(new Text(chalk.bold.cyan('  Guanaco CLI 🦙'), 1, 0));
+  headerContainer.addChild(new Text(chalk.dim(`  Model: ${deps.ollama.currentModel}`), 1, 0));
+  headerContainer.addChild(new Spacer(1));
+
+  function addMessage(role: string, content: string): Markdown {
+    const prefix = role === 'user' ? chalk.bold.green('You: ') : chalk.bold.cyan('Assistant: ');
+    chatContainer.addChild(new Spacer(1));
+    const msg = new Markdown(`${prefix}\n${content}`, 1, 0, MARKDOWN_THEME);
+    chatContainer.addChild(msg);
+    ui.requestRender();
+    return msg;
+  }
+
+  function showStatus(message: string) {
+    statusContainer.clear();
+    statusContainer.addChild(new Text(chalk.dim(`  ${message}`), 1, 0));
+    ui.requestRender();
+  }
+
+  ui.start();
+
   while (true) {
-    try {
-      const { input } = await enquirer.prompt<{ input: string }>({
-        type: 'input',
-        name: 'input',
-        message: pc.green(pc.bold('You')),
-        validate: (value) => (value.trim().length === 0 ? 'Please enter a message.' : true),
-      });
+    const input = await new Promise<string>((resolve) => {
+      editor.onSubmit = (text) => {
+        editor.onSubmit = undefined;
+        resolve(text);
+      };
+    });
 
-      const text = input.trim();
+    const trimmed = input.trim();
+    if (!trimmed) continue;
 
-      if (text.startsWith('/')) {
-        const parts = text.split(' ');
-        const cmd = parts[0].slice(1).toLowerCase();
-        const args = parts.slice(1).join(' ').trim();
-
-        if (cmd === 'help') {
-          showHelp();
-        } else if (cmd === 'clear') {
-          // eslint-disable-next-line no-console
-          console.clear();
-          showHeader(deps);
-        } else if (cmd === 'model') {
-          // eslint-disable-next-line no-console
-          console.log(pc.cyan(`\n🤖 Current model: ${pc.bold(deps.ollama.currentModel)}\n`));
-        } else if (cmd === 'exit' || cmd === 'quit') {
-          process.exit(0);
+    if (trimmed.startsWith('/')) {
+      const [cmd, ...args] = trimmed.split(' ');
+      if (cmd === '/exit' || cmd === '/quit') {
+        ui.stop();
+        process.exit(0);
+      } else if (cmd === '/clear') {
+        chatContainer.clear();
+        ui.requestRender();
+        continue;
+      } else if (cmd === '/model') {
+        const modelName = args[0];
+        if (modelName) {
+          deps.ollama.setModel(modelName);
+          headerContainer.clear();
+          headerContainer.addChild(new Spacer(1));
+          headerContainer.addChild(new Text(chalk.bold.cyan('  Guanaco CLI 🦙'), 1, 0));
+          headerContainer.addChild(new Text(chalk.dim(`  Model: ${deps.ollama.currentModel}`), 1, 0));
+          headerContainer.addChild(new Spacer(1));
+          showStatus(`Switched to model: ${modelName}`);
         } else {
-          // eslint-disable-next-line no-console
-          console.log(pc.yellow(`Unknown command: /${cmd}. Type /help for available commands.`));
+          showStatus('Usage: /model <name>');
         }
         continue;
+      } else if (cmd === '/help') {
+        addMessage('system', 'Available Commands:\n- /help: Show this help\n- /clear: Clear chat history\n- /model <name>: Change model\n- /exit: Exit the application');
+        continue;
       }
+    }
 
-      const spinner = ora({
-        text: pc.dim('Thinking...'),
-        color: 'cyan',
-      }).start();
+    addMessage('user', trimmed);
+    const assistantMsg = addMessage('assistant', '...');
+    let fullResponse = '';
 
-      try {
-        const streamEnabled = deps.streamEnabled !== false;
-        let fullResponse = '';
-
-        const handleDelta = (chunk: string) => {
-          if (spinner.isSpinning) {
-            spinner.stop();
-            process.stdout.write(`\n${pc.blue(pc.bold('AI'))}: `);
-          }
+    try {
+      showStatus('Thinking...');
+      const response = await deps.ollama.chat([{ role: 'user', content: trimmed }], {
+        onAssistantDelta: (chunk) => {
           fullResponse += chunk;
-          process.stdout.write(chunk);
-        };
+          assistantMsg.setText(`${chalk.bold.cyan('Assistant: ')}\n${fullResponse}`);
+          ui.requestRender();
+        },
+      });
 
-        const messages: Message[] = [];
-        if (deps.systemPrompt) {
-          messages.push({ role: 'system', content: deps.systemPrompt });
-        }
-        messages.push({ role: 'user', content: text });
-
-        const reply = await deps.ollama.chat(messages, {
-          tools: deps.tools,
-          maxToolSteps: deps.maxToolSteps,
-          onAssistantDelta: streamEnabled ? handleDelta : undefined,
-        });
-
-        if (spinner.isSpinning) {
-          spinner.stop();
-          process.stdout.write(`\n${pc.blue(pc.bold('AI'))}: `);
-        }
-
-        if (!streamEnabled) {
-          process.stdout.write(reply);
-          fullResponse = reply;
-        }
-
-        process.stdout.write('\n\n');
-      } catch (err) {
-        if (spinner.isSpinning) {
-          spinner.stop();
-        }
-        throw err;
+      if (!deps.streamEnabled) {
+        assistantMsg.setText(`${chalk.bold.cyan('Assistant: ')}\n${response}`);
       }
+      statusContainer.clear();
+      ui.requestRender();
     } catch (err) {
-      if (err === '') {
-        // Enquirer throws empty string on Ctrl+C in some cases
-        process.exit(0);
-      }
-      // eslint-disable-next-line no-console
-      console.error(`\n${pc.red(pc.bold('❌ Error:'))}`, pc.red(err instanceof Error ? err.message : String(err)));
+      statusContainer.clear();
+      statusContainer.addChild(new Text(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`), 1, 0));
+      ui.requestRender();
     }
   }
-}
-
-function showHeader(deps: CliDeps) {
-  // eslint-disable-next-line no-console
-  console.log(pc.cyan(pc.bold('\nWelcome to the Guanaco CLI! 🦙')));
-  // eslint-disable-next-line no-console
-  console.log(
-    pc.dim('Model: ') +
-      pc.cyan(deps.ollama.currentModel) +
-      pc.dim(' | Streaming: ') +
-      pc.cyan(deps.streamEnabled !== false ? 'On' : 'Off')
-  );
-  // eslint-disable-next-line no-console
-  console.log(pc.dim('Type your message or use a command (e.g., /help).\n'));
-}
-
-function showHelp() {
-  const commands = [
-    ['/help', 'Show this help message'],
-    ['/clear', 'Clear the terminal screen'],
-    ['/model', 'Show current model'],
-    ['/exit', 'Exit the application'],
-  ];
-
-  // eslint-disable-next-line no-console
-  console.log(pc.bold('Available Commands:'));
-  for (const [cmd, desc] of commands) {
-    // eslint-disable-next-line no-console
-    console.log(`  ${pc.cyan(cmd.padEnd(10))} — ${pc.dim(desc)}`);
-  }
-  // eslint-disable-next-line no-console
-  console.log();
 }

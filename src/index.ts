@@ -33,7 +33,6 @@ async function main(): Promise<void> {
 
   await startCli({
     ollama,
-    systemPrompt: cfg.systemPrompt,
     tools,
     streamEnabled: cfg.streamEnabled,
   });
