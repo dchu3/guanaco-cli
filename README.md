@@ -1,6 +1,6 @@
 # guanaco-cli
 
-An **interactive CLI** that connects to a **local LLM** via [Ollama](https://ollama.com). Guanaco is a wild version of Llama. Designed as a small, dependency-light base you can expand on.
+An **interactive CLI** built with the [@earendil-works/pi-tui](https://github.com/earendil-works/pi-tui) framework that connects to a **local LLM** via [Ollama](https://ollama.com). Guanaco is a wild version of Llama. Designed as a small, dependency-light base you can expand on.
 
 No trading, no MCP, no payments — just `CLI ↔ Ollama`.
 
@@ -60,8 +60,8 @@ npm start qwen2.5-coder:3b
 
 - `/help` — list commands
 - `/clear` — clear the terminal screen
-- `/model` — show the configured model
-- `/exit` — quit the application
+- `/model <name>` — switch the active model (e.g., `/model qwen2.5:0.5b`)
+- `/exit` or `/quit` — quit the application
 
 Any other text message is forwarded to the LLM.
 
@@ -71,7 +71,7 @@ Any other text message is forwarded to the LLM.
 src/
   index.ts      # entry point + graceful shutdown
   config.ts     # env parsing & validation
-  cli.ts        # interactive terminal interface
+  cli.ts        # interactive terminal interface using pi-tui
   ollama.ts     # local LLM client + tool-calling loop
   tools.ts      # tool registry and dispatcher
   util/log.ts   # debug() helper
