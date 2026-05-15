@@ -1,8 +1,6 @@
 import enquirer from 'enquirer';
 import pc from 'picocolors';
 import ora from 'ora';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { OllamaClient, Message } from './ollama.js';
 import type { ToolRegistry } from './tools.js';
 
@@ -13,8 +11,6 @@ export interface CliDeps {
   maxToolSteps?: number;
   streamEnabled?: boolean;
 }
-
-const execAsync = promisify(exec);
 
 export async function startCli(deps: CliDeps): Promise<void> {
   showHeader(deps);
@@ -46,21 +42,6 @@ export async function startCli(deps: CliDeps): Promise<void> {
         } else if (cmd === 'model') {
           // eslint-disable-next-line no-console
           console.log(pc.cyan(`\n🤖 Current model: ${pc.bold(deps.ollama.currentModel)}\n`));
-        } else if (cmd === 'execute') {
-          if (!args) {
-            // eslint-disable-next-line no-console
-            console.log(pc.yellow('Usage: /execute <command>'));
-          } else {
-            try {
-              const { stdout } = await execAsync(`./scripts/secure_execute.sh "${args.replace(/"/g, '\\"')}"`);
-              // eslint-disable-next-line no-console
-              console.log(`\n${pc.dim(stdout.trim() || '(no output)')}\n`);
-            } catch (err: unknown) {
-              const errorMsg = err instanceof Error ? ((err as { stdout?: string }).stdout || err.message) : String(err);
-              // eslint-disable-next-line no-console
-              console.log(`\n${pc.red(pc.bold('❌ Error:'))} ${pc.red(errorMsg.trim())}\n`);
-            }
-          }
         } else if (cmd === 'exit' || cmd === 'quit') {
           process.exit(0);
         } else {
@@ -147,7 +128,6 @@ function showHelp() {
     ['/help', 'Show this help message'],
     ['/clear', 'Clear the terminal screen'],
     ['/model', 'Show current model'],
-    ['/execute', 'Execute a shell command (restricted)'],
     ['/exit', 'Exit the application'],
   ];
 
