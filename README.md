@@ -1,6 +1,6 @@
 # guanaco-cli
 
-An **interactive CLI** built with the [@earendil-works/pi-tui](https://github.com/earendil-works/pi-tui) framework that connects to a **local LLM** via [Ollama](https://ollama.com). Guanaco is a wild version of Llama. Designed as a small, dependency-light base you can expand on.
+An **interactive CLI** built with the [@earendil-works/pi-tui](https://github.com/earendil-works/pi) framework that connects to a **local LLM** via [Ollama](https://ollama.com). Guanaco is a wild version of Llama. Designed as a small, dependency-light base you can expand on.
 
 No trading, no MCP, no payments — just `CLI ↔ Ollama`.
 
