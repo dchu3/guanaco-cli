@@ -7,7 +7,8 @@ No trading, no MCP, no payments — just `CLI ↔ Ollama`.
 ## Features
 
 - ☑ **CLI Interface**: Interactive terminal chat with streaming output.
-- `/help`, `/clear`, `/model` commands.
+- `/help`, `/clear`, `/model`, and shell execution commands.
+- ☑ **Shell Execution**: Run system commands directly using the `!` prefix (e.g., `!ls`, `!git status`).
 - ☑ Configurable timeout, model, and base URL.
 - ☑ Tests for the Ollama client.
 
@@ -61,6 +62,7 @@ npm start qwen2.5-coder:3b
 - `/help` — list commands
 - `/clear` — clear the terminal screen
 - `/model <name>` — switch the active model (e.g., `/model qwen2.5:0.5b`)
+- `!<command>` — execute a shell command (e.g., `!git status`)
 - `/exit` or `/quit` — quit the application
 
 Any other text message is forwarded to the LLM.

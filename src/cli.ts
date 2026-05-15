@@ -1,3 +1,5 @@
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   TUI,
   ProcessTerminal,
@@ -10,7 +12,7 @@ import {
   type EditorTheme,
 } from '@earendil-works/pi-tui';
 import chalk from 'chalk';
-import type { OllamaClient, Message } from './ollama.js';
+import type { OllamaClient } from './ollama.js';
 import type { ToolRegistry } from './tools.js';
 
 export interface CliDeps {
@@ -18,14 +20,6 @@ export interface CliDeps {
   tools: ToolRegistry;
   streamEnabled: boolean;
 }
-
-const THEME = {
-  accent: chalk.cyan,
-  muted: chalk.dim,
-  error: chalk.red,
-  success: chalk.green,
-  border: chalk.dim,
-};
 
 const MARKDOWN_THEME: MarkdownTheme = {
   heading: (text: string) => chalk.bold.cyan(text),
@@ -47,13 +41,15 @@ const MARKDOWN_THEME: MarkdownTheme = {
 const EDITOR_THEME: EditorTheme = {
   borderColor: (text: string) => chalk.dim(text),
   selectList: {
-    selectedPrefix: (text: string) => chalk.cyan('→ '),
+    selectedPrefix: (_text: string) => chalk.cyan('→ '),
     selectedText: (text: string) => chalk.cyan(text),
     description: (text: string) => chalk.dim(text),
     scrollInfo: (text: string) => chalk.dim(text),
     noMatch: (text: string) => chalk.red(text),
   },
 };
+
+const execAsync = promisify(exec);
 
 export async function startCli(deps: CliDeps): Promise<void> {
   const terminal = new ProcessTerminal();
@@ -80,7 +76,14 @@ export async function startCli(deps: CliDeps): Promise<void> {
   headerContainer.addChild(new Spacer(1));
 
   function addMessage(role: string, content: string): Markdown {
-    const prefix = role === 'user' ? chalk.bold.green('You: ') : chalk.bold.cyan('Assistant: ');
+    let prefix = '';
+    if (role === 'user') {
+      prefix = chalk.bold.green('You: ');
+    } else if (role === 'assistant') {
+      prefix = chalk.bold.cyan('Assistant: ');
+    } else {
+      prefix = chalk.bold.yellow('System: ');
+    }
     chatContainer.addChild(new Spacer(1));
     const msg = new Markdown(`${prefix}\n${content}`, 1, 0, MARKDOWN_THEME);
     chatContainer.addChild(msg);
@@ -96,6 +99,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
 
   ui.start();
 
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     const input = await new Promise<string>((resolve) => {
       editor.onSubmit = (text) => {
@@ -131,7 +135,29 @@ export async function startCli(deps: CliDeps): Promise<void> {
         }
         continue;
       } else if (cmd === '/help') {
-        addMessage('system', 'Available Commands:\n- /help: Show this help\n- /clear: Clear chat history\n- /model <name>: Change model\n- /exit: Exit the application');
+        addMessage('system', 'Available Commands:\n- /help: Show this help\n- /clear: Clear chat history\n- /model <name>: Change model\n- /exit: Exit the application\n- !<command>: Execute shell command');
+        continue;
+      }
+    }
+
+    if (trimmed.startsWith('!')) {
+      const command = trimmed.slice(1).trim();
+      if (command) {
+        addMessage('user', trimmed);
+        showStatus(`Executing: ${command}`);
+        try {
+          const { stdout, stderr } = await execAsync(command);
+          if (stdout) {
+            addMessage('system', stdout.trim());
+          }
+          if (stderr) {
+            addMessage('system', chalk.yellow(stderr.trim()));
+          }
+        } catch (err) {
+          addMessage('system', chalk.red(`Error executing command: ${err instanceof Error ? err.message : String(err)}`));
+        }
+        statusContainer.clear();
+        ui.requestRender();
         continue;
       }
     }
