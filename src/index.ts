@@ -4,8 +4,18 @@ import { startCli } from './cli.js';
 import { buildToolRegistry } from './tools.js';
 import { buildSdlcAgentsFromConfig } from './mastra/index.js';
 import { GitOps } from './harness/git.js';
+import { getVersion, wantsVersion } from './version.js';
 
 async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  // Fast-path: print version and exit before constructing Ollama/Mastra so
+  // `guanaco --version` works from any folder without a running Ollama.
+  if (wantsVersion(argv)) {
+    // eslint-disable-next-line no-console
+    console.log(getVersion());
+    process.exit(0);
+  }
+
   const cfg = loadConfig();
 
   const ollama = new OllamaClient({

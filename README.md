@@ -47,12 +47,27 @@ OLLAMA_PROVIDER=cloud OLLAMA_API_KEY=sk-... npm start
 
 ### Global `guanaco` command (run the harness in any repo)
 
-The package exposes a `guanaco` bin. After building, link it globally:
+The package exposes a `guanaco` bin. The simplest install — no `sudo`, no
+`npm link` — is the bundled installer, which builds the app and drops a
+`guanaco` launcher on your `PATH` (default `~/.local/bin`):
 
 ```bash
-npm run build
-npm link            # may need sudo, or a user-owned npm prefix
+bash scripts/install.sh          # or: npm run install:cli
 ```
+
+If `~/.local/bin` isn't on your `PATH`, the installer appends a markered
+`export PATH=...` to your shell rc and tells you to open a new shell. Undo
+with `bash scripts/uninstall.sh` (or `npm run uninstall:cli`).
+
+To update later, from **any** folder:
+
+```bash
+guanaco update                 # git pull + rebuild + refresh the shim
+```
+
+(`guanaco update` refuses to pull over uncommitted local changes in the repo
+it was installed from; commit/stash first. Equivalent to `bash scripts/update.sh`
+or `npm run update:cli`.)
 
 Now from **any** git repo:
 
@@ -60,6 +75,7 @@ Now from **any** git repo:
 cd /path/to/other-repo
 guanaco                      # HARNESS_REPO_ROOT defaults to the current dir
 /feature add a /hello command that prints a greeting
+guanaco --version             # prints the installed version
 ```
 
 The wrapper loads `.env` from your current directory (so a `.env` in the target
@@ -73,6 +89,26 @@ HARNESS_MODEL_CODER=qwen2.5-coder:7b guanaco
 ```
 
 If you haven't built yet, `guanaco` prints a reminder to run `npm run build`.
+
+<details><summary>Alternative: <code>npm link</code> (if you have a writable npm prefix)</summary>
+
+```bash
+npm run build
+npm link            # may need sudo, or a user-owned npm prefix
+```
+
+This is equivalent to the installer for users whose npm prefix is user-writable.
+</details>
+
+<details><summary>How the installer chooses its bin dir</summary>
+
+Precedence: `$GUIANACO_BIN_DIR` if set &rarr; first writable dir already on
+`PATH` &rarr; `~/.local/bin` (created if needed). The choice is recorded in
+`~/.config/guanaco/install.env` so `uninstall.sh` is deterministic. The
+launcher is a small bash shim that `exec`s `node <pkgdir>/bin/guanaco.js`, so
+it keeps working after you move around; if the repo is moved/deleted the shim
+prints a friendly "re-run install.sh" message instead of crashing.
+</details>
 
 ## Running the harness
 
@@ -147,13 +183,17 @@ src/
 
 ## Scripts
 
-| Script          | Purpose                           |
-| --------------- | --------------------------------- |
-| `npm run dev`   | `tsx watch` with live reload      |
-| `npm run build` | TypeScript build to `dist/`       |
-| `npm start`     | Run the compiled app from `dist/` |
-| `npm test`      | Run the Vitest suite              |
-| `npm run lint`  | ESLint over `src/` and `tests/`   |
+| Script                   | Purpose                                              |
+| ------------------------ | ---------------------------------------------------- |
+| `npm run dev`            | `tsx` run from source (no watch — Enter stays submit) |
+| `npm run dev:watch`      | `tsx watch` (Enter restarts in watch mode — caveat)  |
+| `npm run build`          | TypeScript build to `dist/`                          |
+| `npm start`             | Run the compiled app from `dist/`                    |
+| `npm run install:cli`    | Install the global `guanaco` shim via `scripts/install.sh`   |
+| `npm run update:cli`      | Update an existing install via `scripts/update.sh`    |
+| `npm run uninstall:cli`  | Remove the `guanaco` shim via `scripts/uninstall.sh`  |
+| `npm test`              | Run the Vitest suite                                  |
+| `npm run lint`           | ESLint over `src/` and `tests/`                      |
 
 ## License
 
