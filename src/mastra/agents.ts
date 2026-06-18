@@ -7,8 +7,13 @@ export type { SdlcRole };
 
 /**
  * The minimal surface the harness runner needs from an agent. Real Mastra
- * `Agent` instances satisfy this; tests can provide lightweight stubs that
- * implement only `stream()`.
+ * `Agent` instances are wrapped (see `createSdlcAgents`) so the wrapper's
+ * `stream()` routes to the right Mastra streaming path — `Agent#stream()` for
+ * AI SDK v5+ models, falling back to `Agent#streamLegacy()` for v4 models
+ * (e.g. the local `ollama-ai-provider` and the `ollama-cloud/*` router, which
+ * Mastra rejects from `stream()` with "AI SDK v4 model … not compatible with
+ * stream()"). Tests can provide lightweight stubs that implement only
+ * `stream()`.
  */
 export interface AgentLike {
   readonly id: string;
@@ -104,10 +109,10 @@ export interface CreateSdlcAgentsOptions {
 export function createSdlcAgents(opts: CreateSdlcAgentsOptions): SdlcAgents {
   const { getModel, toolSet, instructionsOverride } = opts;
 
-  function makeAgent(role: SdlcRole, name: string): Agent {
+  function makeAgent(role: SdlcRole, name: string): AgentLike {
     const tools = toolSet.subset(ROLE_TOOLS[role] as string[]);
     const hasTools = Object.keys(tools).length > 0;
-    return new Agent({
+    const agent = new Agent({
       id: role,
       name,
       instructions: instructionsOverride?.[role] ?? AGENT_INSTRUCTIONS[role],
@@ -115,6 +120,36 @@ export function createSdlcAgents(opts: CreateSdlcAgentsOptions): SdlcAgents {
       maxRetries: 1,
       ...(hasTools ? { tools: tools as never } : {}),
     });
+    // Mastra's `Agent#stream()` is the AI SDK v5 path. v4 models (the local
+    // `ollama-ai-provider` and the `ollama-cloud/*` model router) are rejected
+    // from `stream()` with "AI SDK v4 model … not compatible with stream()";
+    // `Agent#streamLegacy()` is the v4 path and returns the same
+    // `{ textStream, text }` the harness consumes, accepting the same options
+    // (`maxSteps`, `toolChoice`). Try v5 first (optimal for v5 models, including
+    // the test mock), then fall back to v4 on the incompatibility error so both
+    // providers work without branching on config.
+    return {
+      id: role,
+      stream: async (messages, options) => {
+        try {
+          return await (agent.stream(messages, options as never) as Promise<AgentStreamLike>);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (/not compatible with stream|AI SDK v4/i.test(msg)) {
+            try {
+              return await (agent.streamLegacy(messages, options as never) as Promise<AgentStreamLike>);
+            } catch (legacyErr) {
+              throw new Error(
+                `Agent "${name}" model is incompatible with both stream() and streamLegacy(): ${
+                  legacyErr instanceof Error ? legacyErr.message : String(legacyErr)
+                }`,
+              );
+            }
+          }
+          throw err;
+        }
+      },
+    };
   }
 
   return {

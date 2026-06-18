@@ -274,7 +274,9 @@ export async function startCli(deps: CliDeps): Promise<void> {
     return cwd;
   }
 
-  /** Render the footer line (PWD · git branch) below the input box. */
+  /** Render the footer line (PWD · git branch) below the input box, with a
+   * blank line of padding underneath so it doesn't sit flush against the
+   * terminal bottom edge. */
   function setFooterLine(branch?: string): void {
     const cwd = shortenPath(process.cwd());
     const line =
@@ -283,6 +285,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
         : `${chalk.dim('  📁')} ${chalk.dim(cwd)}`;
     footerContainer.clear();
     footerContainer.addChild(new Text(line, 1, 0));
+    footerContainer.addChild(new Spacer(1)); // padding underneath
   }
 
   /**
