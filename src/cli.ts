@@ -119,6 +119,18 @@ export async function startCli(deps: CliDeps): Promise<void> {
     ui.requestRender();
   }
 
+  // Also trim while the user is *typing*. The Editor grows as text wraps or
+  // newlines are added; without trimming mid-typing the editor expansion
+  // pushes the header (and earlier chat) off-screen — which is the
+  // "entering text clears the screen" symptom. The TUI calls
+  // `editor.handleInput()` then `requestRender()`, and `onChange` fires
+  // during handleInput (before that render), so trimming here takes effect
+  // in the same render. We only trim (mutate chat); we must NOT call
+  // requestRender here — the TUI's own post-handleInput requestRender covers it.
+  editor.onChange = () => {
+    trimChatToFit(regions, { columns: ui.terminal.columns, rows: ui.terminal.rows });
+  };
+
   let activeRunner: HarnessRunner | undefined;
 
   function renderHeader(): void {
