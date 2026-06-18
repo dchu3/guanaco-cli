@@ -26,12 +26,17 @@ if (!existsSync(entry)) {
 }
 
 // `--env-file-if-exists=.env` resolves relative to cwd, so a .env in the repo
-// you're running from is picked up automatically.
-const child = spawn(process.execPath, ['--env-file-if-exists=.env', entry], {
-  stdio: 'inherit',
-  cwd: process.cwd(),
-  env: process.env,
-});
+// you're running from is picked up automatically. Forward any extra CLI args
+// (e.g. `--version`, `--model`, `--provider`) to the app.
+const child = spawn(
+  process.execPath,
+  ['--env-file-if-exists=.env', entry, ...process.argv.slice(2)],
+  {
+    stdio: 'inherit',
+    cwd: process.cwd(),
+    env: process.env,
+  },
+);
 
 child.on('exit', (code, signal) => {
   if (signal) {

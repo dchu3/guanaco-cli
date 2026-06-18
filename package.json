@@ -13,6 +13,8 @@
     "dev": "tsx --env-file-if-exists=.env src/index.ts",
     "dev:watch": "tsx watch --clear-screen=false --env-file-if-exists=.env src/index.ts",
     "start": "node --env-file-if-exists=.env dist/index.js",
+    "install:cli": "bash scripts/install.sh",
+    "uninstall:cli": "bash scripts/uninstall.sh",
     "test": "vitest run",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\""
   },
