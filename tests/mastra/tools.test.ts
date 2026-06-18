@@ -66,6 +66,33 @@ describe('buildSdlcTools', () => {
     expect(out.error).toMatch(/oldText not found/);
   });
 
+  it('edit_file accepts old/new and find/replace aliases for oldText/newText', async () => {
+    // Some models emit {"new":...,"old":...} instead of newText/oldText.
+    const ts = tools();
+    const byOldNew = await ts.tools.edit_file.execute(
+      { path: 'src/a.ts', edits: [{ old: 'foo = 1', new: 'foo = 7' }] },
+      {} as never,
+    );
+    expect(byOldNew.appliedEdits).toBe(1);
+    const afterOldNew = await ts.tools.read_file.execute({ path: 'src/a.ts' }, {} as never);
+    expect(afterOldNew.content).toContain('foo = 7');
+
+    const byFindReplace = await ts.tools.edit_file.execute(
+      { path: 'src/a.ts', edits: [{ find: 'foo = 7', replace: 'foo = 9' }] },
+      {} as never,
+    );
+    expect(byFindReplace.appliedEdits).toBe(1);
+    const afterFR = await ts.tools.read_file.execute({ path: 'src/a.ts' }, {} as never);
+    expect(afterFR.content).toContain('foo = 9');
+  });
+
+  it('edit_file returns a clear error when an edit is missing both old and new', async () => {
+    const t = tools().tools.edit_file;
+    const out = await t.execute({ path: 'src/a.ts', edits: [{ old: 'foo = 9' }] }, {} as never);
+    expect(out.appliedEdits).toBe(0);
+    expect(out.error).toMatch(/oldText.*newText|newText.*oldText/);
+  });
+
   it('glob matches patterns and ignores node_modules/.git', async () => {
     await mkdir(join(repo, 'node_modules'), { recursive: true });
     await writeFile(join(repo, 'node_modules', 'skipped.ts'), 'x');

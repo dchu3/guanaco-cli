@@ -41,9 +41,10 @@ export const ROLE_TOOLS: Record<SdlcRole, (keyof SdlcToolRecord)[]> = {
 const SHARED_PREAMBLE = `You are part of an automated software-development harness operating inside a git repository.
 Hard rules:
 - Work only inside the repo root. Never touch files outside it.
-- Prefer edit_file over write_file for targeted changes.
+- Prefer edit_file over write_file for targeted changes. edit_file edits use the keys "oldText" and "newText" ("old"/"new" and "find"/"replace" are accepted as aliases).
 - Do not run git commit, git push, sudo, or any destructive shell command — the harness handles git commits after human approval.
 - When you must run a build/test, use the shell tool.
+- Formatting: ALWAYS put shell commands, code, and file contents in fenced code blocks (e.g. \`\`\`bash) on their OWN lines, separated by a blank line from prose. Never run a command or code inline with a sentence.
 - Stay within your role. Hand off to the next stage by producing your role's output contract, never by free-form chatting.`;
 
 export const AGENT_INSTRUCTIONS: Record<SdlcRole, string> = {

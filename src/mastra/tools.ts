@@ -182,8 +182,13 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
       edits: z
         .array(
           z.object({
-            oldText: z.string().describe('Exact text to find.'),
-            newText: z.string().describe('Replacement text.'),
+            oldText: z.string().optional().describe('Exact text to find.'),
+            newText: z.string().optional().describe('Replacement text.'),
+            // Aliases some models emit instead of oldText/newText.
+            old: z.string().optional().describe('Alias for oldText.'),
+            new: z.string().optional().describe('Alias for newText.'),
+            find: z.string().optional().describe('Alias for oldText.'),
+            replace: z.string().optional().describe('Alias for newText.'),
           }),
         )
         .optional(),
@@ -201,12 +206,22 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
         const abs = jailPath(repoRoot, path);
         let content = await readFile(abs, 'utf8');
         for (const e of edits) {
-          const idx = content.indexOf(e.oldText);
+          const oldText = e.oldText ?? e.old ?? e.find;
+          const newText = e.newText ?? e.new ?? e.replace;
+          if (oldText === undefined || newText === undefined) {
+            return {
+              path,
+              appliedEdits: 0,
+              error:
+                'edit_file: each edit needs "oldText" and "newText" (aliases "old"/"new" or "find"/"replace" are accepted)',
+            };
+          }
+          const idx = content.indexOf(oldText);
           if (idx === -1) {
             return { path, appliedEdits: 0, error: `edit_file: oldText not found in ${path}` };
           }
-          const after = content.slice(idx + e.oldText.length);
-          content = content.slice(0, idx) + e.newText + after;
+          const after = content.slice(idx + oldText.length);
+          content = content.slice(0, idx) + newText + after;
         }
         await writeFile(abs, content, 'utf8');
         debug('harness-tool', `edit_file ${path} (${edits.length} edits)`);
