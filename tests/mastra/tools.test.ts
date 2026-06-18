@@ -67,6 +67,23 @@ describe('buildSdlcTools', () => {
     ).rejects.toThrow(/oldText not found/);
   });
 
+  it('edit_file accepts old/new (and old_str/new_str) aliases for oldText/newText', async () => {
+    const ts = tools();
+    await ts.tools.edit_file.execute(
+      { path: 'src/a.ts', edits: [{ old: 'foo = 1', new: 'foo = 7' }] },
+      {} as never,
+    );
+    let r = await ts.tools.read_file.execute({ path: 'src/a.ts' }, {} as never);
+    expect(r.content).toContain('foo = 7');
+
+    await ts.tools.edit_file.execute(
+      { path: 'src/a.ts', edits: [{ old_str: 'foo = 7', new_str: 'foo = 99' }] },
+      {} as never,
+    );
+    r = await ts.tools.read_file.execute({ path: 'src/a.ts' }, {} as never);
+    expect(r.content).toContain('foo = 99');
+  });
+
   it('glob matches patterns and ignores node_modules/.git', async () => {
     await mkdir(join(repo, 'node_modules'), { recursive: true });
     await writeFile(join(repo, 'node_modules', 'skipped.ts'), 'x');

@@ -143,22 +143,44 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
   const editFileTool = createTool({
     id: 'edit_file',
     description:
-      'Apply exact-text replacements to a file. Each edit must match a unique, non-overlapping region of the current file content. Prefer this over write_file for targeted changes.',
+      'Apply exact-text replacements to a file. Each edit must match a unique, non-overlapping region of the current file content. Prefer this over write_file for targeted changes. Each edit needs the text to find and its replacement; the canonical keys are `oldText`/`newText`, but `old`/`new` and `old_str`/`new_str` are also accepted.',
     inputSchema: z.object({
       path: z.string().describe('Repo-relative path to the file.'),
       edits: z
         .array(
-          z.object({
-            oldText: z.string().describe('Exact text to find.'),
-            newText: z.string().describe('Replacement text.'),
-          }),
+          // Models sometimes emit `old`/`new` or `old_str`/`new_str` instead of
+          // `oldText`/`newText`; normalize before the strict schema validates.
+          z.preprocess(
+            (v) => {
+              if (v && typeof v === 'object') {
+                const o = v as Record<string, unknown>;
+                return {
+                  oldText: o.oldText ?? o.old ?? o.old_str,
+                  newText: o.newText ?? o.new ?? o.new_str,
+                };
+              }
+              return v;
+            },
+            z.object({
+              oldText: z.string().describe('Exact text to find.'),
+              newText: z.string().describe('Replacement text.'),
+            }),
+          ),
         )
         .min(1),
     }),
     execute: async (input) => {
       const abs = jailPath(repoRoot, input.path);
       let content = await readFile(abs, 'utf8');
-      for (const e of input.edits) {
+      // input.edits is typed as unknown[] (preprocess input); normalize aliases
+      // here too so direct callers (and any path that skips schema parsing)
+      // work the same as model tool-calls.
+      const rawEdits = (input.edits ?? []) as Array<Record<string, string | undefined>>;
+      const edits = rawEdits.map((e) => ({
+        oldText: e.oldText ?? e.old ?? e.old_str ?? '',
+        newText: e.newText ?? e.new ?? e.new_str ?? '',
+      }));
+      for (const e of edits) {
         const idx = content.indexOf(e.oldText);
         if (idx === -1) {
           throw new Error(`edit_file: oldText not found in ${input.path}`);
@@ -167,8 +189,8 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
         content = content.slice(0, idx) + e.newText + after;
       }
       await writeFile(abs, content, 'utf8');
-      debug('harness-tool', `edit_file ${input.path} (${input.edits.length} edits)`);
-      return { path: input.path, appliedEdits: input.edits.length };
+      debug('harness-tool', `edit_file ${input.path} (${edits.length} edits)`);
+      return { path: input.path, appliedEdits: edits.length };
     },
   });
 
