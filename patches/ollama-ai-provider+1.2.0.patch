@@ -1,0 +1,44 @@
+diff --git a/node_modules/ollama-ai-provider/dist/index.js b/node_modules/ollama-ai-provider/dist/index.js
+index 5023072..bc82367 100644
+--- a/node_modules/ollama-ai-provider/dist/index.js
++++ b/node_modules/ollama-ai-provider/dist/index.js
+@@ -660,7 +660,7 @@ var ollamaChatResponseSchema = import_zod2.z.object({
+   done: import_zod2.z.literal(true),
+   done_reason: import_zod2.z.string().optional().nullable(),
+   eval_count: import_zod2.z.number(),
+-  eval_duration: import_zod2.z.number(),
++  eval_duration: import_zod2.z.number().optional(),
+   load_duration: import_zod2.z.number().optional(),
+   message: import_zod2.z.object({
+     content: import_zod2.z.string(),
+@@ -694,7 +694,7 @@ var ollamaChatStreamChunkSchema = import_zod2.z.discriminatedUnion("done", [
+     created_at: import_zod2.z.string(),
+     done: import_zod2.z.literal(true),
+     eval_count: import_zod2.z.number(),
+-    eval_duration: import_zod2.z.number(),
++    eval_duration: import_zod2.z.number().optional(),
+     load_duration: import_zod2.z.number().optional(),
+     model: import_zod2.z.string(),
+     prompt_eval_count: import_zod2.z.number().optional(),
+diff --git a/node_modules/ollama-ai-provider/dist/index.mjs b/node_modules/ollama-ai-provider/dist/index.mjs
+index 3a18622..61b73dd 100644
+--- a/node_modules/ollama-ai-provider/dist/index.mjs
++++ b/node_modules/ollama-ai-provider/dist/index.mjs
+@@ -645,7 +645,7 @@ var ollamaChatResponseSchema = z2.object({
+   done: z2.literal(true),
+   done_reason: z2.string().optional().nullable(),
+   eval_count: z2.number(),
+-  eval_duration: z2.number(),
++  eval_duration: z2.number().optional(),
+   load_duration: z2.number().optional(),
+   message: z2.object({
+     content: z2.string(),
+@@ -679,7 +679,7 @@ var ollamaChatStreamChunkSchema = z2.discriminatedUnion("done", [
+     created_at: z2.string(),
+     done: z2.literal(true),
+     eval_count: z2.number(),
+-    eval_duration: z2.number(),
++    eval_duration: z2.number().optional(),
+     load_duration: z2.number().optional(),
+     model: z2.string(),
+     prompt_eval_count: z2.number().optional(),

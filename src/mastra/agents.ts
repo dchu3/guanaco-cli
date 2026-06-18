@@ -7,8 +7,11 @@ export type { SdlcRole };
 
 /**
  * The minimal surface the harness runner needs from an agent. Real Mastra
- * `Agent` instances satisfy this; tests can provide lightweight stubs that
- * implement only `stream()`.
+ * `Agent` instances are wrapped (see `createSdlcAgents`) so that `stream()`
+ * routes to either `Agent#stream()` (AI SDK v5 models) or `Agent#streamLegacy()`
+ * (AI SDK v4 models like `ollama-ai-provider`), both of which expose the
+ * `{ textStream, text }` this interface requires. Tests can provide lightweight
+ * stubs that implement only `stream()`.
  */
 export interface AgentLike {
   readonly id: string;
@@ -21,6 +24,41 @@ export interface AgentStreamLike {
 }
 
 export type SdlcAgents = Record<SdlcRole, AgentLike>;
+
+/**
+ * The subset of a Mastra `Agent` that `routeAgentStream` calls. Both methods
+ * return an object structurally compatible with `AgentStreamLike`.
+ */
+export interface AgentStreamMethods {
+  stream(messages: unknown, options?: unknown): Promise<AgentStreamLike>;
+  streamLegacy(messages: unknown, options?: unknown): Promise<AgentStreamLike>;
+}
+
+/**
+ * AI SDK v4 providers (e.g. `ollama-ai-provider`, `specificationVersion 'v1'`)
+ * are incompatible with Mastra's `Agent#stream()` (the AI SDK v5 path) and must
+ * go through `Agent#streamLegacy()`. v5 models (`specificationVersion 'v2'`)
+ * and the cloud model-router config (a plain `{ id, apiKey }` with no
+ * `specificationVersion`) use `stream()`.
+ */
+export function isV4Model(model: unknown): boolean {
+  return (model as { specificationVersion?: string } | null | undefined)?.specificationVersion === 'v1';
+}
+
+/**
+ * Build the `stream` function for an `AgentLike` that routes to the correct
+ * Mastra entry point based on the model's AI SDK version. Extracted so the
+ * routing is unit-testable without constructing a real `Agent`.
+ */
+export function routeAgentStream(agent: AgentStreamMethods, model: unknown): AgentLike['stream'] {
+  const useLegacy = isV4Model(model);
+  return (messages, options) => {
+    const result = useLegacy
+      ? agent.streamLegacy(messages, options)
+      : agent.stream(messages, options);
+    return result as Promise<AgentStreamLike>;
+  };
+}
 
 /** Tools each role is permitted to call. Empty = planning-only. */
 export const ROLE_TOOLS: Record<SdlcRole, (keyof SdlcToolRecord)[]> = {
@@ -104,17 +142,24 @@ export interface CreateSdlcAgentsOptions {
 export function createSdlcAgents(opts: CreateSdlcAgentsOptions): SdlcAgents {
   const { getModel, toolSet, instructionsOverride } = opts;
 
-  function makeAgent(role: SdlcRole, name: string): Agent {
+  function makeAgent(role: SdlcRole, name: string): AgentLike {
     const tools = toolSet.subset(ROLE_TOOLS[role] as string[]);
     const hasTools = Object.keys(tools).length > 0;
-    return new Agent({
+    const model = getModel(role);
+    const agent = new Agent({
       id: role,
       name,
       instructions: instructionsOverride?.[role] ?? AGENT_INSTRUCTIONS[role],
-      model: getModel(role),
+      model,
       maxRetries: 1,
       ...(hasTools ? { tools: tools as never } : {}),
     });
+    // Route to streamLegacy() for AI SDK v4 models (ollama-ai-provider) and
+    // stream() for v5/cloud — see isV4Model/routeAgentStream.
+    return {
+      id: role,
+      stream: routeAgentStream(agent as unknown as AgentStreamMethods, model),
+    };
   }
 
   return {

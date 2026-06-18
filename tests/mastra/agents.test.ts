@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createMockModel } from '@mastra/core/test-utils/llm-mock';
-import { createSdlcAgents } from '../../src/mastra/agents.js';
+import { createSdlcAgents, isV4Model, routeAgentStream, type AgentStreamMethods } from '../../src/mastra/agents.js';
 import { buildSdlcTools } from '../../src/mastra/tools.js';
 import { HarnessRunner } from '../../src/harness/runner.js';
 import { GitOps } from '../../src/harness/git.js';
@@ -104,6 +104,81 @@ describe('createSdlcAgents (real Mastra Agent + mock model)', () => {
       // The reviewer/tester verdicts were parsed from the mock text.
       expect(runner.status().lastReviewerVerdict).toBe('APPROVE');
       expect(runner.status().lastTesterVerdict).toBe('TESTS_PASSED');
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('isV4Model', () => {
+  it('returns true for specificationVersion "v1" (AI SDK v4)', () => {
+    expect(isV4Model({ specificationVersion: 'v1' })).toBe(true);
+  });
+
+  it('returns false for specificationVersion "v2" (AI SDK v5)', () => {
+    expect(isV4Model({ specificationVersion: 'v2' })).toBe(false);
+  });
+
+  it('returns false for the cloud model-router config (no specificationVersion)', () => {
+    expect(isV4Model({ id: 'ollama-cloud/foo', apiKey: 'k' })).toBe(false);
+  });
+
+  it('returns false for null/undefined', () => {
+    expect(isV4Model(null)).toBe(false);
+    expect(isV4Model(undefined)).toBe(false);
+  });
+});
+
+describe('routeAgentStream', () => {
+  const fakeStream = { textStream: (async function* () {})(), text: Promise.resolve('') };
+
+  function fakeAgent(): AgentStreamMethods & { stream: ReturnType<typeof vi.fn>; streamLegacy: ReturnType<typeof vi.fn> } {
+    return {
+      stream: vi.fn().mockResolvedValue(fakeStream),
+      streamLegacy: vi.fn().mockResolvedValue(fakeStream),
+    };
+  }
+
+  it('routes to streamLegacy for a v4 (specificationVersion v1) model', async () => {
+    const agent = fakeAgent();
+    const stream = routeAgentStream(agent, { specificationVersion: 'v1' });
+    await stream('hi', { maxSteps: 2, toolChoice: 'auto' });
+    expect(agent.streamLegacy).toHaveBeenCalledWith('hi', { maxSteps: 2, toolChoice: 'auto' });
+    expect(agent.stream).not.toHaveBeenCalled();
+  });
+
+  it('routes to stream for a v5 (specificationVersion v2) model', async () => {
+    const agent = fakeAgent();
+    const stream = routeAgentStream(agent, { specificationVersion: 'v2' });
+    await stream('hi', { maxSteps: 2 });
+    expect(agent.stream).toHaveBeenCalledWith('hi', { maxSteps: 2 });
+    expect(agent.streamLegacy).not.toHaveBeenCalled();
+  });
+
+  it('routes to stream for the cloud router config (no specificationVersion)', async () => {
+    const agent = fakeAgent();
+    const stream = routeAgentStream(agent, { id: 'ollama-cloud/foo', apiKey: 'k' });
+    await stream('hi');
+    expect(agent.stream).toHaveBeenCalledWith('hi', undefined);
+    expect(agent.streamLegacy).not.toHaveBeenCalled();
+  });
+});
+
+describe('createSdlcAgents routing (real Agent + mock model)', () => {
+  it('streams via the v4 path for a v1 mock model without throwing', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'sdlc-v4-'));
+    try {
+      const toolSet = buildSdlcTools({ repoRoot: repo, toolTimeoutMs: 5000 });
+      const agents = createSdlcAgents({
+        // version: 'v1' -> AI SDK v4 mock, which would throw on stream().
+        getModel: () => createMockModel({ mockText: 'v4 ok', version: 'v1' }) as never,
+        toolSet,
+      });
+      const out = await agents.orchestrator.stream('plan something');
+      let full = '';
+      for await (const delta of out.textStream) full += delta;
+      expect((await out.text).trim()).toBe('v4 ok');
+      expect(full.trim()).toBe('v4 ok');
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
