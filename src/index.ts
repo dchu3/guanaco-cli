@@ -2,6 +2,8 @@ import { loadConfig } from './config.js';
 import { OllamaClient } from './ollama.js';
 import { startCli } from './cli.js';
 import { buildToolRegistry } from './tools.js';
+import { buildSdlcAgentsFromConfig } from './mastra/index.js';
+import { GitOps } from './harness/git.js';
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
@@ -19,8 +21,14 @@ async function main(): Promise<void> {
 
   const tools = buildToolRegistry({});
 
+  // SDLC harness: Mastra agents + tools, coordinated by HarnessRunner.
+  const harnessAgents = buildSdlcAgentsFromConfig(cfg);
+  const gitOps = new GitOps({ repoRoot: cfg.harness.repoRoot });
+
   // eslint-disable-next-line no-console
-  console.log(`guanaco-cli · model=${cfg.ollamaModel} · ollama=${cfg.ollamaBaseUrl}`);
+  console.log(
+    `guanaco-cli · model=${cfg.ollamaModel} · ollama=${cfg.ollamaBaseUrl} · harness=${cfg.harness.provider}`,
+  );
 
   const shutdown = (signal: string) => () => {
     // eslint-disable-next-line no-console
@@ -35,6 +43,9 @@ async function main(): Promise<void> {
     ollama,
     tools,
     streamEnabled: cfg.streamEnabled,
+    harnessAgents,
+    harnessConfig: cfg.harness,
+    gitOps,
   });
 }
 
