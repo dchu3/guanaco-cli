@@ -76,16 +76,16 @@ describe('trimChatToFit', () => {
     expect(lastMsg.render(cols).join(' ')).toContain('message 5');
   });
 
-  it('never strips below a single message block, even when that block overflows', () => {
+  it('skips trimming entirely when budget < 2 (very short terminal), leaving chat unshifted', () => {
     const r = buildRegions();
-    const cols = 20;
-    const rows = 6; // fixed=8 already exceeds rows → budget=0
-    addMessage(r, 'this is a fairly long message that will wrap');
+    const cols = 80;
+    const rows = 6; // fixed=8 > rows → budget = max(0, 6-8) = 0 < 2
+    for (let i = 0; i < 3; i++) addMessage(r, `m${i}`);
     const before = r.chat.children.length;
     trimChatToFit(r, { columns: cols, rows });
-    // At least the Spacer + message remain.
-    expect(r.chat.children.length).toBeGreaterThanOrEqual(2);
-    expect(r.chat.children.length).toBe(before); // nothing removed (only one block)
+    // No trim (and therefore no chat shift) — shifting chat above the viewport
+    // would trigger a pi-tui full-screen clear, which is what we avoid here.
+    expect(r.chat.children.length).toBe(before);
   });
 
   it('accounts for status height when computing the budget', () => {
@@ -114,18 +114,32 @@ describe('trimChatToFit', () => {
     expect(last.render(cols).join(' ')).toContain('message number 49');
   });
 
-  it('respects markdown wrapping: a long single-line message consumes multiple rows', () => {
+  it('trims an oversized OLDER wrapping message, keeping the latest that fits', () => {
     const r = buildRegions();
     const cols = 20;
     const rows = 12; // fixed=8, budget=4
-    addMessage(r, 'short'); // 1 line
-    addMessage(r, 'a'.repeat(60)); // wraps to several lines at width 20
+    addMessage(r, 'a'.repeat(60)); // older, wraps to several lines at width 20
+    addMessage(r, 'short'); // latest, block = Spacer + 1 line = 2
     trimChatToFit(r, { columns: cols, rows });
-    // The short block is dropped; only the latest (long, wrapping) block stays.
-    // A single oversized block is allowed to overflow the budget (documented edge case).
-    expect(r.chat.children.length).toBe(2);
+    // The oversized older block is dropped; the latest (short) fits.
+    expect(totalHeight(r, cols)).toBeLessThanOrEqual(rows);
+    expect(r.chat.children.length).toBe(2); // Spacer + short
     const last = r.chat.children[1] as Markdown;
-    expect(last.render(cols).length).toBeGreaterThan(1);
+    expect(last.render(cols).join(' ')).toContain('short');
+  });
+
+  it('reverts (does not shift chat) when the latest message alone overflows the budget', () => {
+    const r = buildRegions();
+    const cols = 20;
+    const rows = 12; // fixed=8, budget=4
+    addMessage(r, 'short'); // older, block 2
+    addMessage(r, 'a'.repeat(60)); // latest, wraps to ~4 lines → block ~5 > budget
+    const before = r.chat.children.length; // 4
+    trimChatToFit(r, { columns: cols, rows });
+    // Trimming can't make it fit (the latest alone overflows) → revert, so chat
+    // is not shifted (avoids a pi-tui full-screen clear). Overflow is accepted.
+    expect(r.chat.children.length).toBe(before);
+    expect(totalHeight(r, cols)).toBeGreaterThan(rows);
   });
 
   it('exposes fixedHeight/totalHeight consistently', () => {

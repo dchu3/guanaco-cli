@@ -128,10 +128,9 @@ function buildAppWithEditor(
   header.addChild(new Spacer(1));
 
   const regions: ChatRegions = { header, chat, status, editor: editorContainer };
-  // Mirror cli.ts: trim on every editor text change (typing/paste/newline).
-  editor.onChange = () => {
-    trimChatToFit(regions, { columns: ui.terminal.columns, rows: ui.terminal.rows });
-  };
+  // Mirror cli.ts: no per-keystroke trim (typing only updates the editor, in-viewport),
+  // and clearOnShrink disabled so a shrinking layout never blanks the screen.
+  ui.setClearOnShrink(false);
   return { ui, term, regions, editor, cols };
 }
 
@@ -192,53 +191,48 @@ describe('CLI viewport integration (TUI + trimChatToFit)', () => {
   });
 });
 
-describe('CLI viewport while typing (real Editor + onChange trim)', () => {
-  it('keeps the header pinned while the user types a long, wrapping input', async () => {
-    const rows = 24;
-    const { ui, term, regions, editor, cols } = buildAppWithEditor(rows);
+describe('CLI viewport while typing (real Editor, no per-keystroke trim)', () => {
+  it('does not full-render while typing on a short terminal with overflowing chat', async () => {
+    const rows = 10; // header(4)+editor(3)+spacer(1)=8 → budget=2; chat overflows
+    const { ui, term, regions, editor } = buildAppWithEditor(rows);
     renderChat(ui, regions);
     await sleep(40);
-
-    // Pre-fill chat so the screen is nearly full.
+    // Pre-fill chat well past the budget so the layout overflows `rows`.
     for (let i = 0; i < 8; i++) {
       regions.chat.addChild(new Spacer(1));
       regions.chat.addChild(new Markdown(`msg ${i} `.repeat(6), 1, 0, theme));
       renderChat(ui, regions);
+      await sleep(5);
     }
-    await sleep(20);
-
-    const before = ui.render(cols);
-    expect(before.some((l) => l.includes('Guanaco CLI'))).toBe(true);
-
-    // Simulate typing a long line that wraps across many editor lines.
-    // editor.setText calls onChange once (per its contract) → trim runs;
-    // then the TUI's post-handleInput requestRender is mirrored here.
+    const beforeClears = term.clears;
+    // Simulate typing a long, wrapping input. cli.ts no longer trims on typing,
+    // so chat is not shifted and no full-render is triggered.
     editor.setText('a'.repeat(400));
     ui.requestRender();
     await sleep(20);
-
-    const lines = ui.render(cols);
-    expect(lines.length).toBeLessThanOrEqual(rows);
-    expect(lines.slice(-rows).some((l) => l.includes('Guanaco CLI'))).toBe(true);
-    expect(term.clears).toBe(0);
-  });
-
-  it('keeps the header pinned while typing multi-line input (newlines)', async () => {
-    const rows = 20;
-    const { ui, regions, editor, cols } = buildAppWithEditor(rows);
-    renderChat(ui, regions);
-    await sleep(40);
-    for (let i = 0; i < 6; i++) {
-      regions.chat.addChild(new Spacer(1));
-      regions.chat.addChild(new Markdown(`msg ${i} `.repeat(5), 1, 0, theme));
-      renderChat(ui, regions);
-    }
-    // 10 newlines → editor grows to ~11 content lines (capped by maxVisibleLines).
-    editor.setText(Array.from({ length: 10 }, (_, i) => `line ${i}`).join('\n'));
+    editor.setText('a'.repeat(600));
     ui.requestRender();
     await sleep(20);
+    expect(term.clears - beforeClears).toBe(0); // no \x1b[2J full-screen clear
+  });
+
+  it('does not full-render when a shrinking layout would otherwise clear (clearOnShrink off)', async () => {
+    const rows = 14;
+    const { ui, term, regions, cols } = buildAppWithEditor(rows);
+    renderChat(ui, regions);
+    await sleep(40);
+    // Add a tall message, render, then replace it with a short one (shrink).
+    regions.chat.addChild(new Spacer(1));
+    const msg = new Markdown(`tall\n${'x\n'.repeat(8)}`, 1, 0, theme);
+    regions.chat.addChild(msg);
+    renderChat(ui, regions);
+    await sleep(20);
+    const beforeClears = term.clears;
+    msg.setText('short'); // layout shrinks; clearOnShrink is off → no clear
+    renderChat(ui, regions);
+    await sleep(20);
+    expect(term.clears - beforeClears).toBe(0);
     const lines = ui.render(cols);
     expect(lines.length).toBeLessThanOrEqual(rows);
-    expect(lines.slice(-rows).some((l) => l.includes('Guanaco CLI'))).toBe(true);
   });
 });

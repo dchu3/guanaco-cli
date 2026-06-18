@@ -83,6 +83,10 @@ const execAsync = promisify(exec);
 export async function startCli(deps: CliDeps): Promise<void> {
   const terminal = new ProcessTerminal();
   const ui = new TUI(terminal);
+  // Never blank the screen because content shrank (e.g. a message replaced or
+  // the editor cleared). pi-tui's `clearOnShrink` path issues a full-screen
+  // clear (\x1b[2J); we want only differential updates.
+  ui.setClearOnShrink(false);
 
   const headerContainer = new Container();
   const chatContainer = new Container();
@@ -114,22 +118,19 @@ export async function startCli(deps: CliDeps): Promise<void> {
   // unforced re-render. IMPORTANT: never call ui.requestRender(true) here —
   // the forced path in pi-tui issues a full screen clear (\x1b[2J), which is
   // exactly the flicker we are avoiding.
+  //
+  // Trimming is intentionally ONLY done on discrete chat mutations (add
+  // message, status change, streaming setText, /clear, harness hooks) — never
+  // on every keystroke. While typing, only the editor changes (it sits at the
+  // bottom of the buffer, inside the visible viewport), so it renders as a
+  // small differential update with no full-render. Trimming on each keystroke
+  // would shift chat from above the viewport once content overflows `rows`,
+  // triggering pi-tui's `firstChanged < prevViewportTop` → fullRender(true)
+  // full-screen clear — the "screen refreshes when I type" symptom.
   function renderChat(): void {
     trimChatToFit(regions, { columns: ui.terminal.columns, rows: ui.terminal.rows });
     ui.requestRender();
   }
-
-  // Also trim while the user is *typing*. The Editor grows as text wraps or
-  // newlines are added; without trimming mid-typing the editor expansion
-  // pushes the header (and earlier chat) off-screen — which is the
-  // "entering text clears the screen" symptom. The TUI calls
-  // `editor.handleInput()` then `requestRender()`, and `onChange` fires
-  // during handleInput (before that render), so trimming here takes effect
-  // in the same render. We only trim (mutate chat); we must NOT call
-  // requestRender here — the TUI's own post-handleInput requestRender covers it.
-  editor.onChange = () => {
-    trimChatToFit(regions, { columns: ui.terminal.columns, rows: ui.terminal.rows });
-  };
 
   let activeRunner: HarnessRunner | undefined;
 

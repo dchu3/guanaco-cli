@@ -34,10 +34,18 @@ export function fixedHeight(regions: ChatRegions, columns: number): number {
  * Trim the oldest children from the chat container until the chat fits within
  * `rows - fixedHeight`, so the whole layout stays within one screen.
  *
+ * Guarantees (important for avoiding pi-tui full-screen clears):
  * - No-op when the terminal size is unknown (non-TTY / not yet sized).
- * - Never strips below a single message block (Spacer + message), even if that
- *   one block overflows the budget — so very short terminals may still scroll
- *   the header, but typical terminals keep the header pinned.
+ * - No-op when `budget < 2` (a minimal message block is Spacer + 1 line = 2):
+ *   on very short terminals where even one block can't fit, trimming cannot
+ *   help, so we don't shift chat (shifting chat from above the visible
+ *   viewport would trigger pi-tui's `firstChanged < prevViewportTop` →
+ *   `fullRender(true)` full-screen clear).
+ * - Only commits a trim when the result actually fits within `rows`
+ *   (`bufferLength <= rows` → `prevViewportTop == 0`); otherwise it reverts,
+ *   so trimming never leaves the layout overflowing (which would also risk a
+ *   full-render on the next change).
+ * - Never strips below a single message block (Spacer + message).
  *
  * Pure: reads container state via `Container.render(width)` and mutates only
  * `chat` (removeChild). Does not touch the TUI or call requestRender.
@@ -49,9 +57,23 @@ export function trimChatToFit(regions: ChatRegions, size: TerminalSize): void {
   }
   const { chat } = regions;
   const budget = Math.max(0, rows - fixedHeight(regions, columns));
+  if (budget < 2) {
+    // Too little room for even one message block — trimming can't help and
+    // would only shift chat above the viewport (risking a full-screen clear).
+    return;
+  }
+  // Snapshot so we can revert if trimming can't actually make it fit.
+  const original = [...chat.children];
   // Keep at least one message block (Spacer + message = 2 children).
   while (chat.children.length > 2 && chat.render(columns).length > budget) {
     chat.removeChild(chat.children[0]);
+  }
+  // Only keep the trim if the whole layout now fits in one screen. If even the
+  // tail overflows (e.g. a single huge message on a short terminal), revert so
+  // we don't shift chat without benefit.
+  if (totalHeight(regions, columns) > rows) {
+    chat.clear();
+    for (const child of original) chat.addChild(child);
   }
 }
 
