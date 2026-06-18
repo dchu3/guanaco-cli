@@ -10,7 +10,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
+    "dev": "tsx --env-file-if-exists=.env src/index.ts",
+    "dev:watch": "tsx watch --clear-screen=false --env-file-if-exists=.env src/index.ts",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "test": "vitest run",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\""

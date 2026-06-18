@@ -1,5 +1,6 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { CombinedAutocompleteProvider, isKeyRelease, matchesKey, type SlashCommand } from '@earendil-works/pi-tui';
 import {
   TUI,
   ProcessTerminal,
@@ -21,6 +22,7 @@ import { HarnessRunner } from './harness/runner.js';
 import type { GitOps } from './harness/git.js';
 import type { HarnessHooks, HarnessStep } from './harness/types.js';
 import { trimChatToFit, type ChatRegions } from './ui/layout.js';
+import { COMMANDS, formatCommandList, isBareSlash } from './commands.js';
 
 export interface CliDeps {
   ollama: OllamaClient;
@@ -102,6 +104,38 @@ export async function startCli(deps: CliDeps): Promise<void> {
   const editor = new Editor(ui, EDITOR_THEME, { paddingX: 1 });
   editorContainer.addChild(editor);
   ui.setFocus(editor);
+
+  // Power the Editor's built-in slash menu: typing `/` pops a dropdown of all
+  // commands (filtered as you type, Tab/Enter completes). Built from the same
+  // `COMMANDS` catalogue as `/help` and the bare-`/` listing so they never
+  // drift. `basePath` enables the @-path file completions too. Show the whole
+  // catalogue at once (only 8 commands) instead of paginating 5-up.
+  //
+  // NOTE: CombinedAutocompleteProvider expects slash-command names WITHOUT the
+  // leading '/' — it prepends the '/' itself in applyCompletion()
+  // (`${beforePrefix}/${item.value} `). Passing '/feature' would complete to
+  // '//feature'. `COMMANDS` keeps the '/' for dispatch/display, so strip it here.
+  const slashCommands: SlashCommand[] = COMMANDS.map((c) => ({
+    name: c.name.slice(1),
+    description: c.description,
+    ...(c.args ? { argumentHint: c.args } : {}),
+  }));
+  editor.setAutocompleteMaxVisible(COMMANDS.length);
+  editor.setAutocompleteProvider(
+    new CombinedAutocompleteProvider(slashCommands, process.cwd(), null),
+  );
+
+  ui.addInputListener(
+    createCtrlCHandler({
+      editor,
+      ui,
+      showStatus,
+      quit: () => {
+        ui.stop();
+        process.exit(0);
+      },
+    }),
+  );
 
   // The four stacked regions. `trimChatToFit` keeps the chat region bounded
   // so the header stays pinned at the top and the editor at the bottom —
@@ -212,6 +246,11 @@ export async function startCli(deps: CliDeps): Promise<void> {
       const [cmd, ...args] = trimmed.split(' ');
       const rest = trimmed.slice(cmd.length).trim();
 
+      if (isBareSlash(trimmed)) {
+        addMessage('system', formatCommandList());
+        continue;
+      }
+
       if (cmd === '/exit' || cmd === '/quit') {
         ui.stop();
         process.exit(0);
@@ -243,18 +282,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
         await runHarness(rest);
         continue;
       } else if (cmd === '/help') {
-        addMessage(
-          'system',
-          'Available Commands:\n' +
-            '- /feature <prompt>: run the SDLC harness to implement a feature\n' +
-            '- /agents: list the SDLC agents and their models\n' +
-            '- /harness-status: show the current/last harness run state\n' +
-            '- /help: Show this help\n' +
-            '- /clear: Clear chat history\n' +
-            '- /model <name>: Change chat model\n' +
-            '- /exit: Exit the application\n' +
-            '- !<command>: Execute shell command',
-        );
+        addMessage('system', formatCommandList());
         continue;
       } else {
         showStatus(`Unknown command: ${cmd}  (try /help)`);
@@ -414,4 +442,41 @@ export async function startCli(deps: CliDeps): Promise<void> {
       activeRunner = undefined;
     }
   }
+}
+
+/**
+ * Build the Ctrl+C input-listener for `ui.addInputListener`. Two-stage, matching
+ * the Editor's "let parent handle (exit/clear)" intent (its ctrl+c handler is a
+ * no-op). stdin is in raw mode so Ctrl+C arrives as a byte, not a SIGINT — the
+ * index.ts SIGINT handler never fires from the keystroke, so we handle it here,
+ * before the editor:
+ *   1. autocomplete dropdown open -> let it pass; the editor cancels it
+ *      (tui.select.cancel includes ctrl+c);
+ *   2. editor has text -> clear the input (and hint to press again to quit);
+ *   3. editor empty -> call `quit` (same as /exit).
+ *
+ * Extracted so the behaviour is unit-testable without a live terminal.
+ */
+export interface CtrlCHandlerDeps {
+  editor: Editor;
+  ui: TUI;
+  showStatus: (message: string) => void;
+  quit: () => void;
+}
+
+export function createCtrlCHandler(deps: CtrlCHandlerDeps): (data: string) => { consume: true } | undefined {
+  const { editor, ui, showStatus, quit } = deps;
+  return (data) => {
+    if (isKeyRelease(data)) return undefined;
+    if (!matchesKey(data, 'ctrl+c')) return undefined;
+    if (editor.isShowingAutocomplete()) return undefined; // editor cancels dropdown
+    if (editor.getText().length > 0) {
+      editor.setText('');
+      showStatus('Input cleared — press Ctrl+C again to quit.');
+      ui.requestRender();
+      return { consume: true };
+    }
+    quit();
+    return { consume: true };
+  };
 }
