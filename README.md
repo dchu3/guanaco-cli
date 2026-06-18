@@ -20,7 +20,7 @@ Guanaco is a wild version of Llama.
 2. **Ollama** running locally (for local mode):
    ```bash
    ollama serve            # starts the server on http://localhost:11434
-   ollama pull llama3.2
+   ollama pull qwen3.5:0.8b
    ollama pull qwen2.5-coder:7b   # coding roles benefit from a coder-tuned model
    ```
 
@@ -77,7 +77,7 @@ Plain text (not starting with `/` or `!`) is a regular single-agent chat via the
 | Variable               | Required | Default                  | Notes                                  |
 | ---------------------- | :------: | ------------------------ | -------------------------------------- |
 | `OLLAMA_BASE_URL`      |          | `http://localhost:11434` | Ollama HTTP endpoint                   |
-| `OLLAMA_MODEL`         |          | `llama3.2`               | Chat model. Overridable via `--model`. |
+| `OLLAMA_MODEL`         |          | `qwen3.5:0.8b`           | Chat model. Overridable via `--model`. |
 | `OLLAMA_PROVIDER`      |          | `local`                  | `local` or `cloud` for harness agents  |
 | `OLLAMA_API_KEY`       | cloud    | _(unset)_                | Required when `OLLAMA_PROVIDER=cloud`  |
 | `HARNESS_MODEL_*`      |          | see defaults             | Per-role model overrides (`_ORCHESTRATOR`, `_PRODUCT`, `_ARCHITECT`, `_CODER`, `_REVIEWER`, `_TESTER`) |

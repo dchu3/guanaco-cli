@@ -100,7 +100,7 @@ function getArgValue(flag: string): string | undefined {
 }
 
 export function loadConfig(): AppConfig {
-  let ollamaModel = process.env.OLLAMA_MODEL?.trim() || 'llama3.2';
+  let ollamaModel = process.env.OLLAMA_MODEL?.trim() || 'qwen3.5:0.8b';
 
   const modelArg = getArgValue('--model');
   if (modelArg) {

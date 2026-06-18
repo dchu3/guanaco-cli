@@ -9,8 +9,8 @@ import type { HarnessConfig, SdlcRole } from '../config.js';
  * via HARNESS_MODEL_<ROLE> / --<role>-model.
  */
 export const DEFAULT_ROLE_MODELS: Record<SdlcRole, string> = {
-  orchestrator: 'llama3.2',
-  product: 'llama3.2',
+  orchestrator: 'qwen3.5:0.8b',
+  product: 'qwen3.5:0.8b',
   architect: 'qwen2.5-coder:7b',
   coder: 'qwen2.5-coder:7b',
   reviewer: 'qwen2.5-coder:7b',
