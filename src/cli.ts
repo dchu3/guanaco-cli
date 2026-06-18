@@ -20,6 +20,7 @@ import { DEFAULT_ROLE_MODELS } from './mastra/models.js';
 import { HarnessRunner } from './harness/runner.js';
 import type { GitOps } from './harness/git.js';
 import type { HarnessHooks, HarnessStep } from './harness/types.js';
+import { trimChatToFit, type ChatRegions } from './ui/layout.js';
 
 export interface CliDeps {
   ollama: OllamaClient;
@@ -98,6 +99,26 @@ export async function startCli(deps: CliDeps): Promise<void> {
   editorContainer.addChild(editor);
   ui.setFocus(editor);
 
+  // The four stacked regions. `trimChatToFit` keeps the chat region bounded
+  // so the header stays pinned at the top and the editor at the bottom —
+  // fixing the "entering input clears the screen" symptom (which was really
+  // the whole layout scrolling as one unit, pushing the header off-screen).
+  const regions: ChatRegions = {
+    header: headerContainer,
+    chat: chatContainer,
+    status: statusContainer,
+    editor: editorContainer,
+  };
+
+  // Trim oldest chat children to fit the terminal, then request an
+  // unforced re-render. IMPORTANT: never call ui.requestRender(true) here —
+  // the forced path in pi-tui issues a full screen clear (\x1b[2J), which is
+  // exactly the flicker we are avoiding.
+  function renderChat(): void {
+    trimChatToFit(regions, { columns: ui.terminal.columns, rows: ui.terminal.rows });
+    ui.requestRender();
+  }
+
   let activeRunner: HarnessRunner | undefined;
 
   function renderHeader(): void {
@@ -113,7 +134,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
       ),
     );
     headerContainer.addChild(new Spacer(1));
-    ui.requestRender();
+    renderChat();
   }
   renderHeader();
 
@@ -129,7 +150,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
     chatContainer.addChild(new Spacer(1));
     const msg = new Markdown(`${prefix}\n${content}`, 1, 0, MARKDOWN_THEME);
     chatContainer.addChild(msg);
-    ui.requestRender();
+    renderChat();
     return msg;
   }
 
@@ -142,19 +163,19 @@ export async function startCli(deps: CliDeps): Promise<void> {
       MARKDOWN_THEME,
     );
     chatContainer.addChild(msg);
-    ui.requestRender();
+    renderChat();
     return msg;
   }
 
   function showStatus(message: string): void {
     statusContainer.clear();
     statusContainer.addChild(new Text(chalk.dim(`  ${message}`), 1, 0));
-    ui.requestRender();
+    renderChat();
   }
 
   function clearStatus(): void {
     statusContainer.clear();
-    ui.requestRender();
+    renderChat();
   }
 
   function nextInput(): Promise<string> {
@@ -183,7 +204,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
         process.exit(0);
       } else if (cmd === '/clear') {
         chatContainer.clear();
-        ui.requestRender();
+        renderChat();
         continue;
       } else if (cmd === '/model') {
         const modelName = args[0];
@@ -262,12 +283,13 @@ export async function startCli(deps: CliDeps): Promise<void> {
         onAssistantDelta: (chunk) => {
           fullResponse += chunk;
           assistantMsg.setText(`${chalk.bold.cyan('Assistant: ')}\n${fullResponse}`);
-          ui.requestRender();
+          renderChat();
         },
       });
 
       if (!deps.streamEnabled) {
         assistantMsg.setText(`${chalk.bold.cyan('Assistant: ')}\n${response}`);
+        renderChat();
       }
       clearStatus();
     } catch (err) {
@@ -275,7 +297,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
       statusContainer.addChild(
         new Text(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`), 1, 0),
       );
-      ui.requestRender();
+      renderChat();
     }
   }
 
@@ -331,7 +353,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
       onAgentDelta: (role, _delta, full) => {
         if (!currentMsg) currentMsg = addAgentMessage(role, full);
         else currentMsg.setText(`${chalk.bold.magenta(`[${AGENT_LABEL[role]}]`)}\n${full}`);
-        ui.requestRender();
+        renderChat();
       },
       onAgentMessage: (role, text) => {
         if (currentMsg) {
@@ -339,7 +361,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
         } else {
           currentMsg = addAgentMessage(role, text);
         }
-        ui.requestRender();
+        renderChat();
         currentMsg = undefined;
       },
       onInfo: (text) => {
