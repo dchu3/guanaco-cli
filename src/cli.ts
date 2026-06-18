@@ -1,6 +1,6 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { CombinedAutocompleteProvider, type SlashCommand } from '@earendil-works/pi-tui';
+import { CombinedAutocompleteProvider, isKeyRelease, matchesKey, type SlashCommand } from '@earendil-works/pi-tui';
 import {
   TUI,
   ProcessTerminal,
@@ -123,6 +123,18 @@ export async function startCli(deps: CliDeps): Promise<void> {
   editor.setAutocompleteMaxVisible(COMMANDS.length);
   editor.setAutocompleteProvider(
     new CombinedAutocompleteProvider(slashCommands, process.cwd(), null),
+  );
+
+  ui.addInputListener(
+    createCtrlCHandler({
+      editor,
+      ui,
+      showStatus,
+      quit: () => {
+        ui.stop();
+        process.exit(0);
+      },
+    }),
   );
 
   // The four stacked regions. `trimChatToFit` keeps the chat region bounded
@@ -430,4 +442,41 @@ export async function startCli(deps: CliDeps): Promise<void> {
       activeRunner = undefined;
     }
   }
+}
+
+/**
+ * Build the Ctrl+C input-listener for `ui.addInputListener`. Two-stage, matching
+ * the Editor's "let parent handle (exit/clear)" intent (its ctrl+c handler is a
+ * no-op). stdin is in raw mode so Ctrl+C arrives as a byte, not a SIGINT — the
+ * index.ts SIGINT handler never fires from the keystroke, so we handle it here,
+ * before the editor:
+ *   1. autocomplete dropdown open -> let it pass; the editor cancels it
+ *      (tui.select.cancel includes ctrl+c);
+ *   2. editor has text -> clear the input (and hint to press again to quit);
+ *   3. editor empty -> call `quit` (same as /exit).
+ *
+ * Extracted so the behaviour is unit-testable without a live terminal.
+ */
+export interface CtrlCHandlerDeps {
+  editor: Editor;
+  ui: TUI;
+  showStatus: (message: string) => void;
+  quit: () => void;
+}
+
+export function createCtrlCHandler(deps: CtrlCHandlerDeps): (data: string) => { consume: true } | undefined {
+  const { editor, ui, showStatus, quit } = deps;
+  return (data) => {
+    if (isKeyRelease(data)) return undefined;
+    if (!matchesKey(data, 'ctrl+c')) return undefined;
+    if (editor.isShowingAutocomplete()) return undefined; // editor cancels dropdown
+    if (editor.getText().length > 0) {
+      editor.setText('');
+      showStatus('Input cleared — press Ctrl+C again to quit.');
+      ui.requestRender();
+      return { consume: true };
+    }
+    quit();
+    return { consume: true };
+  };
 }
