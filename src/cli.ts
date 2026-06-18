@@ -192,6 +192,9 @@ export async function startCli(deps: CliDeps): Promise<void> {
   }
 
   let activeRunner: HarnessRunner | undefined;
+  // Abort controller for the in-flight harness run; Esc aborts it so the user
+  // can stop a hung/slow agent flow without quitting the app.
+  let activeAbort: AbortController | undefined;
 
   function renderHeader(): void {
     headerContainer.clear();
@@ -332,6 +335,19 @@ export async function startCli(deps: CliDeps): Promise<void> {
       renderChat();
     }
     return undefined;
+  });
+
+  // Esc stops the in-flight harness run. Let the editor keep Esc when its
+  // autocomplete dropdown is open (it closes the dropdown); only abort when a
+  // run is active. Input listeners run before the focused component and
+  // `consume: true` stops the editor from also processing the key.
+  ui.addInputListener((data) => {
+    if (!matchesKey(data, 'escape')) return undefined;
+    if (editor.isShowingAutocomplete()) return undefined;
+    if (!activeAbort) return undefined;
+    activeAbort.abort('user');
+    showStatus('Stopping…');
+    return { consume: true };
   });
 
   // Initial footer (PWD + git branch) below the input box.
@@ -554,23 +570,35 @@ export async function startCli(deps: CliDeps): Promise<void> {
       hooks,
     });
     activeRunner = runner;
+    const abort = new AbortController();
+    activeAbort = abort;
 
     try {
-      const result = await runner.run(prompt);
-      const tail = [
-        `Harness finished: ${result.endReason}`,
-        result.branch ? `Branch: ${result.branch}` : null,
-        result.commit ? `Commit: ${result.commit.slice(0, 9)}` : null,
-      ]
-        .filter(Boolean)
-        .join('\n');
-      addMessage('system', chalk.bold.cyan(tail));
+      const result = await runner.run(prompt, abort.signal);
+      if (result.endReason === 'aborted') {
+        addMessage('system', chalk.yellow('Harness stopped.'));
+      } else if (result.endReason === 'timeout') {
+        addMessage(
+          'system',
+          chalk.yellow(`Harness stopped: an agent turn timed out (set HARNESS_AGENT_TIMEOUT_MS to adjust). ` + result.summary),
+        );
+      } else {
+        const tail = [
+          `Harness finished: ${result.endReason}`,
+          result.branch ? `Branch: ${result.branch}` : null,
+          result.commit ? `Commit: ${result.commit.slice(0, 9)}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n');
+        addMessage('system', chalk.bold.cyan(tail));
+      }
     } catch (err) {
       logError('harness', err);
       addMessage('system', chalk.red(`Harness error: ${err instanceof Error ? err.message : String(err)}`));
     } finally {
       stopSpinner();
       activeRunner = undefined;
+      activeAbort = undefined;
       // A harness run may create+checkout a branch; refresh the footer so it
       // reflects the new git branch below the input box.
       void refreshFooter();

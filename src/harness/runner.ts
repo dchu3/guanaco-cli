@@ -12,6 +12,18 @@ import type {
 
 const APPROVAL_YES = new Set(['y', 'yes', 'ok', 'okay', 'proceed', 'go', 'approve', 'approved', 'confirm', 'lgtm']);
 
+/** Thrown when an agent turn is stopped — either by the user (Esc) or by the
+ * per-turn timeout. `run()` catches it and ends the run with a friendly
+ * `endReason` instead of surfacing a raw AbortError. */
+export class HarnessAbortError extends Error {
+  readonly reason: 'user' | 'timeout';
+  constructor(reason: 'user' | 'timeout') {
+    super(reason === 'timeout' ? 'Agent turn timed out' : 'Harness stopped by user');
+    this.name = 'HarnessAbortError';
+    this.reason = reason;
+  }
+}
+
 function parseVerdict(text: string, positive: string[], negative: string[]): 'positive' | 'negative' | 'unknown' {
   const upper = text.toUpperCase();
   // Negative checked first so "CHANGES_REQUESTED" wins over a stray "APPROVE".
@@ -33,6 +45,9 @@ export class HarnessRunner {
   private readonly git: GitOps;
   private readonly hooks: HarnessHooks;
   private state: HarnessRunState;
+  /** Abort signal for the in-flight run (set by `run`); propagated to each
+   *  agent stream so Esc can stop the flow mid-turn. */
+  private abortSignal?: AbortSignal;
 
   constructor(opts: HarnessRunnerOptions) {
     this.agents = opts.agents;
@@ -60,7 +75,12 @@ export class HarnessRunner {
     await this.hooks.onInfo?.(text);
   }
 
-  /** Drive one agent turn: stream, render deltas, record the final text. */
+  /** Drive one agent turn: stream, render deltas, record the final text.
+   *
+   *  `this.abortSignal` (set by `run`) propagates to the agent stream so Esc
+   *  can stop the flow mid-turn. A per-turn timeout (cfg.agentTurnTimeoutMs)
+   *  aborts stalled LLM streams — the lack of any timeout on the Mastra agent
+   *  path was why intake appeared to hang on a slow/stalled model. */
   private async callAgent(
     role: SdlcRole,
     step: HarnessStep,
@@ -72,18 +92,55 @@ export class HarnessRunner {
     const streamOptions = hasTools
       ? { maxSteps: this.cfg.maxAgentSteps, toolChoice: 'auto' as const }
       : { maxSteps: this.cfg.maxAgentSteps };
-    const out = await this.agents[role].stream(prompt, streamOptions);
-    let full = '';
-    for await (const delta of out.textStream) {
-      full += delta;
-      await this.hooks.onAgentDelta?.(role, delta, full);
+
+    const abortSignal = this.abortSignal;
+    const turnController = new AbortController();
+    let abortReason: 'user' | 'timeout' | undefined;
+    let timer: NodeJS.Timeout | undefined;
+    if (abortSignal) {
+      if (abortSignal.aborted) {
+        abortReason = 'user';
+        turnController.abort();
+      } else {
+        abortSignal.addEventListener(
+          'abort',
+          () => {
+            abortReason = 'user';
+            turnController.abort();
+          },
+          { once: true },
+        );
+      }
     }
-    const text = (await out.text) || full;
-    await this.hooks.onAgentMessage?.(role, text);
-    const entry: HarnessLogEntry = { step, agent: role, text };
-    this.state.log.push(entry);
-    await this.step('end');
-    return text;
+    const timeoutMs = this.cfg.agentTurnTimeoutMs ?? 0;
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        abortReason = 'timeout';
+        turnController.abort();
+      }, timeoutMs);
+    }
+
+    try {
+      const out = await this.agents[role].stream(prompt, { ...streamOptions, abortSignal: turnController.signal });
+      let full = '';
+      for await (const delta of out.textStream) {
+        full += delta;
+        await this.hooks.onAgentDelta?.(role, delta, full);
+      }
+      const text = (await out.text) || full;
+      await this.hooks.onAgentMessage?.(role, text);
+      const entry: HarnessLogEntry = { step, agent: role, text };
+      this.state.log.push(entry);
+      await this.step('end');
+      return text;
+    } catch (err) {
+      if (abortReason !== undefined) {
+        throw new HarnessAbortError(abortReason);
+      }
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private async suspend(reason: string, prompt: string): Promise<string> {
@@ -95,7 +152,19 @@ export class HarnessRunner {
     return this.hooks.onSuspend(reason, prompt);
   }
 
-  async run(featurePrompt: string): Promise<HarnessRunResult> {
+  async run(featurePrompt: string, abortSignal?: AbortSignal): Promise<HarnessRunResult> {
+    this.abortSignal = abortSignal;
+    try {
+      return await this.runBody(featurePrompt);
+    } catch (err) {
+      if (err instanceof HarnessAbortError) {
+        return this.end(false, err.reason === 'timeout' ? 'timeout' : 'aborted', err.message);
+      }
+      throw err;
+    }
+  }
+
+  private async runBody(featurePrompt: string): Promise<HarnessRunResult> {
     this.state.feature = featurePrompt;
 
     // --- Preflight: only commit into a clean git tree so we never bundle the

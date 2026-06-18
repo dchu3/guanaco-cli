@@ -139,10 +139,13 @@ export function createSdlcAgents(opts: CreateSdlcAgentsOptions): SdlcAgents {
             try {
               return await (agent.streamLegacy(messages, options as never) as Promise<AgentStreamLike>);
             } catch (legacyErr) {
+              const lmsg = legacyErr instanceof Error ? legacyErr.message : String(legacyErr);
+              // An abort must propagate as-is (don't mislabel it as incompatibility).
+              if (legacyErr instanceof Error && (legacyErr.name === 'AbortError' || /abort/i.test(lmsg))) {
+                throw legacyErr;
+              }
               throw new Error(
-                `Agent "${name}" model is incompatible with both stream() and streamLegacy(): ${
-                  legacyErr instanceof Error ? legacyErr.message : String(legacyErr)
-                }`,
+                `Agent "${name}" model is incompatible with both stream() and streamLegacy(): ${lmsg}`,
               );
             }
           }
