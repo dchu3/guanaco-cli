@@ -281,8 +281,8 @@ export async function startCli(deps: CliDeps): Promise<void> {
     const cwd = shortenPath(process.cwd());
     const line =
       branch !== undefined && branch.length > 0
-        ? `${chalk.dim('  📁')} ${chalk.dim(cwd)}  ${chalk.dim('·  🌿 ' + branch)}`
-        : `${chalk.dim('  📁')} ${chalk.dim(cwd)}`;
+        ? `${chalk.dim(' 📁')} ${chalk.dim(cwd)}  ${chalk.dim('·  🌿 ' + branch)}`
+        : `${chalk.dim(' 📁')} ${chalk.dim(cwd)}`;
     footerContainer.clear();
     footerContainer.addChild(new Text(line, 1, 0));
     footerContainer.addChild(new Spacer(1)); // padding underneath

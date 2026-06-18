@@ -248,15 +248,46 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
         }
       }
       debug('harness-tool', `shell: ${input.command}`);
-      const { stdout, stderr } = await execFn(input.command, {
-        cwd: repoRoot,
-        timeout: opts.toolTimeoutMs,
-        maxBuffer: 1024 * 1024 * 4,
-      });
-      return {
-        stdout: truncate(stdout, maxOut),
-        stderr: truncate(stderr, maxOut),
-      };
+      // A non-zero exit (failing tests/lint/build) is informative in an agentic
+      // loop, not exceptional: return the output + exit code so the agent can
+      // react (e.g. report TESTS_FAILED or fix the build). Throwing here would
+      // surface as a Mastra "Error executing tool" and disrupt the stream.
+      try {
+        const { stdout, stderr } = await execFn(input.command, {
+          cwd: repoRoot,
+          timeout: opts.toolTimeoutMs,
+          maxBuffer: 1024 * 1024 * 4,
+        });
+        return {
+          ok: true,
+          exitCode: 0,
+          stdout: truncate(stdout, maxOut),
+          stderr: truncate(stderr, maxOut),
+        };
+      } catch (err) {
+        const e = err as {
+          code?: number;
+          killed?: boolean;
+          signal?: string;
+          stdout?: string;
+          stderr?: string;
+          message?: string;
+        };
+        if (e.killed || e.signal === 'SIGTERM') {
+          return {
+            ok: false,
+            exitCode: -1,
+            stdout: truncate(e.stdout ?? '', maxOut),
+            stderr: `shell: timed out after ${opts.toolTimeoutMs}ms\n${truncate(e.stderr ?? '', maxOut)}`,
+          };
+        }
+        return {
+          ok: false,
+          exitCode: typeof e.code === 'number' ? e.code : -1,
+          stdout: truncate(e.stdout ?? '', maxOut),
+          stderr: truncate(e.stderr ?? e.message ?? String(err), maxOut),
+        };
+      }
     },
   });
 

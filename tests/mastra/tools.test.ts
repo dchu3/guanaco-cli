@@ -84,6 +84,21 @@ describe('buildSdlcTools', () => {
   it('shell runs commands in the repo root', async () => {
     const out = await tools().tools.shell.execute({ command: 'pwd' }, {} as never);
     expect(out.stdout.trim()).toBe(repo);
+    expect(out.ok).toBe(true);
+    expect(out.exitCode).toBe(0);
+  });
+
+  it('shell returns failure output instead of throwing on a non-zero exit', async () => {
+    // A failing command (e.g. `npm test` with failing tests) must come back as
+    // a tool result the agent can read and react to — not throw and disrupt the
+    // stream with a Mastra "Error executing tool".
+    const out = await tools().tools.shell.execute(
+      { command: 'sh -c "echo boom 1>&2; exit 7"' },
+      {} as never,
+    );
+    expect(out.ok).toBe(false);
+    expect(out.exitCode).toBe(7);
+    expect(out.stderr).toContain('boom');
   });
 
   it('shell refuses denylisted commands', async () => {
