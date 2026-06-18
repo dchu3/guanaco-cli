@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { execSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildSdlcTools } from '../../src/mastra/tools.js';
@@ -98,5 +99,54 @@ describe('buildSdlcTools', () => {
     const ts = tools();
     const sub = ts.subset(['read_file', 'grep']);
     expect(Object.keys(sub).sort()).toEqual(['grep', 'read_file']);
+  });
+});
+
+describe('git_diff tool', () => {
+  let repo: string;
+
+  async function gitRepo(opts: { commit?: boolean } = {}): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'guanaco-gitdiff-'));
+    execSync('git init -q', { cwd: dir });
+    execSync('git config user.email t@t.t', { cwd: dir });
+    execSync('git config user.name t', { cwd: dir });
+    if (opts.commit) {
+      await writeFile(join(dir, 'existing.txt'), 'old\n');
+      execSync('git add -A', { cwd: dir });
+      execSync('git commit -q -m init', { cwd: dir });
+    }
+    return dir;
+  }
+
+  afterEach(async () => {
+    if (repo) await rm(repo, { recursive: true, force: true });
+  });
+
+  it('returns a diff in a repo with NO commits (no HEAD) without throwing', async () => {
+    repo = await gitRepo();
+    await writeFile(join(repo, 'index.js'), 'console.log("hi")\n');
+    const t = buildSdlcTools({ repoRoot: repo, toolTimeoutMs: 5000 }).tools.git_diff;
+    const out = await t.execute({}, {} as never);
+    expect(out.diff).toContain('diff --git a/index.js b/index.js');
+    expect(out.diff).toContain('+console.log("hi")');
+  });
+
+  it('includes new (untracked) files even when HEAD exists', async () => {
+    repo = await gitRepo({ commit: true });
+    await writeFile(join(repo, 'new.txt'), 'new file\n');
+    const t = buildSdlcTools({ repoRoot: repo, toolTimeoutMs: 5000 }).tools.git_diff;
+    const out = await t.execute({}, {} as never);
+    expect(out.diff).toContain('diff --git a/new.txt b/new.txt');
+    expect(out.diff).toContain('+new file');
+  });
+
+  it('shows staged changes with staged=true', async () => {
+    repo = await gitRepo({ commit: true });
+    await writeFile(join(repo, 'staged.txt'), 'staged content\n');
+    execSync('git add staged.txt', { cwd: repo });
+    const t = buildSdlcTools({ repoRoot: repo, toolTimeoutMs: 5000 }).tools.git_diff;
+    const out = await t.execute({ staged: true }, {} as never);
+    expect(out.diff).toContain('diff --git a/staged.txt b/staged.txt');
+    expect(out.diff).toContain('+staged content');
   });
 });

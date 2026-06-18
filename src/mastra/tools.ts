@@ -262,12 +262,35 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
 
   const gitDiffTool = createTool({
     id: 'git_diff',
-    description: 'Return the current uncommitted diff (git diff HEAD) inside the repo root.',
+    description:
+      'Return the current uncommitted diff inside the repo root, including new (untracked) files. Works in a repo with no commits yet (diffs against the empty tree).',
     inputSchema: z.object({ staged: z.boolean().optional() }),
     execute: async (input) => {
-      const cmd = input.staged ? 'git diff --cached' : 'git diff HEAD';
-      const { stdout } = await execFn(cmd, { cwd: repoRoot, timeout: opts.toolTimeoutMs, maxBuffer: 1024 * 1024 * 8 });
-      return { diff: truncate(stdout, maxOut * 4) };
+      const run = (cmd: string): Promise<string> =>
+        execFn(cmd, { cwd: repoRoot, timeout: opts.toolTimeoutMs, maxBuffer: 1024 * 1024 * 8 })
+          .then((r) => r.stdout)
+          .catch(() => '');
+      // Diff against HEAD when there are commits; otherwise against git's
+      // well-known empty-tree object (a repo with no commits yet has no HEAD,
+      // and `git diff HEAD` would fatal).
+      const headOk = await execFn('git rev-parse --verify HEAD', {
+        cwd: repoRoot,
+        timeout: opts.toolTimeoutMs,
+      })
+        .then(() => true)
+        .catch(() => false);
+      const base = headOk ? 'HEAD' : '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+      if (input.staged) {
+        const diff = await run(`git diff --cached ${base}`);
+        return { diff: truncate(diff, maxOut * 4) };
+      }
+      // `git diff` ignores untracked files by default; mark them intent-to-add
+      // so newly-created files show up. This only records intent in the index
+      // (no content staged); the harness's final `git add -A` converts it to a
+      // real add, and it's reversible with `git reset`.
+      await run('git add -N .');
+      const diff = await run(`git diff ${base}`);
+      return { diff: truncate(diff, maxOut * 4) };
     },
   });
 
