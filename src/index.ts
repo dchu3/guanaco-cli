@@ -5,7 +5,7 @@ import { buildToolRegistry } from './tools.js';
 import { buildSdlcAgentsFromConfig } from './mastra/index.js';
 import { GitOps } from './harness/git.js';
 import { getVersion, wantsVersion } from './version.js';
-import { captureStderr, getLogFile, logError, logInfo } from './util/log.js';
+import { captureStderr, getLogFile, logError, logInfo, logPathIsInside } from './util/log.js';
 
 /** Persist any error that escapes the normal control flow so it isn't lost to
  * the TUI's synchronized rendering (which overwrites console output). */
@@ -64,6 +64,12 @@ async function main(): Promise<void> {
   if (logFile) {
     // eslint-disable-next-line no-console
     console.log(`debug log: ${logFile}  (view in-app with /log)`);
+    if (logPathIsInside()) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `warning: GUANACO_LOG_FILE resolves inside the current repo — log entries may be committed. Use an absolute path outside the repo (or unset GUANACO_LOG_FILE for the default ~/.guanaco/logs/debug.log).`,
+      );
+    }
     logInfo('startup', `guanaco-cli model=${cfg.ollamaModel} harness=${cfg.harness.provider}`);
   }
 

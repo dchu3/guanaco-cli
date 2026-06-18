@@ -85,4 +85,12 @@ describe('file logger', () => {
     expect(getLogFile()).toBeUndefined();
     expect(() => logError('scope', 'no throw')).not.toThrow();
   });
+
+  it('logPathIsInside detects when the log file is inside a given dir', async () => {
+    const { logPathIsInside } = await import('../../src/util/log.js');
+    // logPath is <dir>/debug.log → inside dir.
+    expect(logPathIsInside(dir)).toBe(true);
+    // A path outside dir → not inside.
+    expect(logPathIsInside(join(dir, '..', 'elsewhere'))).toBe(false);
+  });
 });

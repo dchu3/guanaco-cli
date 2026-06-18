@@ -3,6 +3,7 @@ dist/
 .env
 .env.local
 *.log
+.guanaco/
 .DS_Store
 coverage/
 .gemini_security/

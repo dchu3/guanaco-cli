@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 /**
  * File-backed debug logging for a TUI app.
@@ -148,6 +148,16 @@ export function logSizeBytes(): number {
   } catch {
     return 0;
   }
+}
+
+/** True when the resolved log file lives inside `dir` (default: cwd). Used to
+ * warn the user that logs may get committed if they pointed GUANACO_LOG_FILE at
+ * a path inside the repo. The default home-relative path is never inside cwd. */
+export function logPathIsInside(dir: string = process.cwd()): boolean {
+  const file = resolveLogFile();
+  if (!file) return false;
+  const rel = relative(resolve(dir), file);
+  return rel === '' || (!rel.startsWith('..') && !resolve(rel).startsWith('..'));
 }
 
 /**
