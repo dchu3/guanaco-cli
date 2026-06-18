@@ -47,9 +47,22 @@ OLLAMA_PROVIDER=cloud OLLAMA_API_KEY=sk-... npm start
 
 ### Global `guanaco` command (run the harness in any repo)
 
-The package exposes a `guanaco` bin. The simplest install — no `sudo`, no
-`npm link` — is the bundled installer, which builds the app and drops a
-`guanaco` launcher on your `PATH` (default `~/.local/bin`):
+The package exposes a `guanaco` bin. No `sudo`, no `npm link`.
+
+**From scratch (one line, no manual clone):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dchu3/guanaco-cli/main/scripts/remote-install.sh | bash
+```
+
+That clones the repo to `~/.local/share/guanaco-cli`, builds it, and installs
+the `guanaco` shim on your `PATH`. (To audit the script first, download it
+instead of piping: `curl -fsSL …/remote-install.sh -o /tmp/guanaco-install.sh`,
+read it, then `bash /tmp/guanaco-install.sh`.) Pin a version with
+`GUANACO_REF=<tag-or-branch>`, steer the clone dir with `GUIANACO_HOME=<dir>`,
+or point at a fork with `GUIANACO_REPO=<git-url>`.
+
+**From an existing checkout:**
 
 ```bash
 bash scripts/install.sh          # or: npm run install:cli
