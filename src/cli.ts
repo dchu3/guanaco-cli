@@ -195,11 +195,11 @@ export async function startCli(deps: CliDeps): Promise<void> {
   function renderHeader(): void {
     headerContainer.clear();
     headerContainer.addChild(new Spacer(1));
-    headerContainer.addChild(new Text(chalk.bold.cyan('  Guanaco CLI 🦙  ·  SDLC harness'), 1, 0));
+    headerContainer.addChild(new Text(chalk.bold.cyan('Guanaco CLI 🦙  ·  SDLC harness'), 1, 0));
     const provider = deps.harnessConfig?.provider ?? 'local';
     headerContainer.addChild(
       new Text(
-        chalk.dim(`  Model: ${deps.ollama.currentModel}  ·  chat provider: ${provider}`),
+        chalk.dim(`Model: ${deps.ollama.currentModel}  ·  chat provider: ${provider}`),
         1,
         0,
       ),
@@ -240,7 +240,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
 
   function showStatus(message: string): void {
     statusContainer.clear();
-    statusContainer.addChild(new Text(chalk.dim(`  ${message}`), 1, 0));
+    statusContainer.addChild(new Text(chalk.dim(`${message}`), 1, 0));
     renderChat();
   }
 
@@ -281,8 +281,8 @@ export async function startCli(deps: CliDeps): Promise<void> {
     const cwd = shortenPath(process.cwd());
     const line =
       branch !== undefined && branch.length > 0
-        ? `${chalk.dim(' 📁')} ${chalk.dim(cwd)}  ${chalk.dim('·  🌿 ' + branch)}`
-        : `${chalk.dim(' 📁')} ${chalk.dim(cwd)}`;
+        ? `${chalk.dim('📁')} ${chalk.dim(cwd)}  ${chalk.dim('·  🌿 ' + branch)}`
+        : `${chalk.dim('📁')} ${chalk.dim(cwd)}`;
     footerContainer.clear();
     footerContainer.addChild(new Text(line, 1, 0));
     footerContainer.addChild(new Spacer(1)); // padding underneath
@@ -437,7 +437,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
     } catch (err) {
       stopSpinner();
       statusContainer.addChild(
-        new Text(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`), 1, 0),
+        new Text(chalk.red(`Error: ${err instanceof Error ? err.message : String(err)}`), 1, 0),
       );
       renderChat();
     }
