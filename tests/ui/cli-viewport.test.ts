@@ -1,7 +1,7 @@
 import { TUI, Container, Text, Spacer, Markdown, Editor, CombinedAutocompleteProvider, type MarkdownTheme, type EditorTheme, type Terminal, type SlashCommand } from '@earendil-works/pi-tui';
 import chalk from 'chalk';
 import { describe, it, expect } from 'vitest';
-import { trimChatToFit, type ChatRegions } from '../../src/ui/layout.js';
+import { layoutToFit, type ChatRegions } from '../../src/ui/layout.js';
 import { COMMANDS } from '../../src/commands.js';
 
 /** Minimal Terminal implementation for driving TUI.render without stdin. */
@@ -65,12 +65,15 @@ function buildApp(rows: number): { ui: TUI; term: MockTerminal; regions: ChatReg
   const header = new Container();
   const chat = new Container();
   const status = new Container();
+  const filler = new Spacer(1);
   const editor = new Container();
+  const footer = new Container();
   ui.addChild(header);
   ui.addChild(chat);
   ui.addChild(status);
-  ui.addChild(new Spacer(1));
+  ui.addChild(filler);
   ui.addChild(editor);
+  ui.addChild(footer);
 
   // Header (mirrors cli.renderHeader)
   header.addChild(new Spacer(1));
@@ -83,11 +86,11 @@ function buildApp(rows: number): { ui: TUI; term: MockTerminal; regions: ChatReg
   editor.addChild(new Text('  [editor]', 1, 0));
   editor.addChild(new Text('────────────', 1, 0));
 
-  return { ui, term, regions: { header, chat, status, editor }, cols };
+  return { ui, term, regions: { header, chat, status, filler, editor, footer }, cols };
 }
 
 function renderChat(ui: TUI, regions: ChatRegions): void {
-  trimChatToFit(regions, { columns: ui.terminal.columns, rows: ui.terminal.rows });
+  layoutToFit(regions, { columns: ui.terminal.columns, rows: ui.terminal.rows });
   ui.requestRender();
 }
 
@@ -102,12 +105,15 @@ function buildAppWithEditor(
   const header = new Container();
   const chat = new Container();
   const status = new Container();
+  const filler = new Spacer(1);
   const editorContainer = new Container();
+  const footer = new Container();
   ui.addChild(header);
   ui.addChild(chat);
   ui.addChild(status);
-  ui.addChild(new Spacer(1));
+  ui.addChild(filler);
   ui.addChild(editorContainer);
+  ui.addChild(footer);
 
   const editorTheme: EditorTheme = {
     borderColor: (t: string) => chalk.dim(t),
@@ -128,7 +134,7 @@ function buildAppWithEditor(
   header.addChild(new Text(chalk.dim('  Model: llama3.2  ·  chat provider: local'), 1, 0));
   header.addChild(new Spacer(1));
 
-  const regions: ChatRegions = { header, chat, status, editor: editorContainer };
+  const regions: ChatRegions = { header, chat, status, filler, editor: editorContainer, footer };
   // Mirror cli.ts: no per-keystroke trim (typing only updates the editor, in-viewport),
   // and clearOnShrink disabled so a shrinking layout never blanks the screen.
   ui.setClearOnShrink(false);
