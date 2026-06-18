@@ -21,6 +21,7 @@ import { HarnessRunner } from './harness/runner.js';
 import type { GitOps } from './harness/git.js';
 import type { HarnessHooks, HarnessStep } from './harness/types.js';
 import { trimChatToFit, type ChatRegions } from './ui/layout.js';
+import { formatCommandList, isBareSlash } from './commands.js';
 
 export interface CliDeps {
   ollama: OllamaClient;
@@ -212,6 +213,11 @@ export async function startCli(deps: CliDeps): Promise<void> {
       const [cmd, ...args] = trimmed.split(' ');
       const rest = trimmed.slice(cmd.length).trim();
 
+      if (isBareSlash(trimmed)) {
+        addMessage('system', formatCommandList());
+        continue;
+      }
+
       if (cmd === '/exit' || cmd === '/quit') {
         ui.stop();
         process.exit(0);
@@ -243,18 +249,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
         await runHarness(rest);
         continue;
       } else if (cmd === '/help') {
-        addMessage(
-          'system',
-          'Available Commands:\n' +
-            '- /feature <prompt>: run the SDLC harness to implement a feature\n' +
-            '- /agents: list the SDLC agents and their models\n' +
-            '- /harness-status: show the current/last harness run state\n' +
-            '- /help: Show this help\n' +
-            '- /clear: Clear chat history\n' +
-            '- /model <name>: Change chat model\n' +
-            '- /exit: Exit the application\n' +
-            '- !<command>: Execute shell command',
-        );
+        addMessage('system', formatCommandList());
         continue;
       } else {
         showStatus(`Unknown command: ${cmd}  (try /help)`);
