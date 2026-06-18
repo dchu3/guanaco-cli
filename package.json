@@ -15,6 +15,7 @@
     "start": "node --env-file-if-exists=.env dist/index.js",
     "install:cli": "bash scripts/install.sh",
     "uninstall:cli": "bash scripts/uninstall.sh",
+    "update:cli": "bash scripts/update.sh",
     "test": "vitest run",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\""
   },

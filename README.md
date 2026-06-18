@@ -59,6 +59,16 @@ If `~/.local/bin` isn't on your `PATH`, the installer appends a markered
 `export PATH=...` to your shell rc and tells you to open a new shell. Undo
 with `bash scripts/uninstall.sh` (or `npm run uninstall:cli`).
 
+To update later, from **any** folder:
+
+```bash
+guanaco update                 # git pull + rebuild + refresh the shim
+```
+
+(`guanaco update` refuses to pull over uncommitted local changes in the repo
+it was installed from; commit/stash first. Equivalent to `bash scripts/update.sh`
+or `npm run update:cli`.)
+
 Now from **any** git repo:
 
 ```bash
@@ -180,6 +190,7 @@ src/
 | `npm run build`          | TypeScript build to `dist/`                          |
 | `npm start`             | Run the compiled app from `dist/`                    |
 | `npm run install:cli`    | Install the global `guanaco` shim via `scripts/install.sh`   |
+| `npm run update:cli`      | Update an existing install via `scripts/update.sh`    |
 | `npm run uninstall:cli`  | Remove the `guanaco` shim via `scripts/uninstall.sh`  |
 | `npm test`              | Run the Vitest suite                                  |
 | `npm run lint`           | ESLint over `src/` and `tests/`                      |
