@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "license": "MIT",
   "description": "Interactive CLI for connecting to local LLMs via Ollama. Guanaco is a wild version of Llama.",
-  "type": "module",
+"type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "guanaco": "bin/guanaco.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",

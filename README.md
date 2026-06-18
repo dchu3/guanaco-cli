@@ -45,6 +45,35 @@ npm start -- --model qwen2.5-coder:3b
 OLLAMA_PROVIDER=cloud OLLAMA_API_KEY=sk-... npm start
 ```
 
+### Global `guanaco` command (run the harness in any repo)
+
+The package exposes a `guanaco` bin. After building, link it globally:
+
+```bash
+npm run build
+npm link            # may need sudo, or a user-owned npm prefix
+```
+
+Now from **any** git repo:
+
+```bash
+cd /path/to/other-repo
+guanaco                      # HARNESS_REPO_ROOT defaults to the current dir
+/feature add a /hello command that prints a greeting
+```
+
+The wrapper loads `.env` from your current directory (so a `.env` in the target
+repo is picked up) and runs the compiled app — no `tsx watch`, so no file-watch
+restarts. Point it at a repo elsewhere with `HARNESS_REPO_ROOT`:
+
+```bash
+HARNESS_REPO_ROOT=/path/to/other-repo guanaco
+# or override per-role models inline:
+HARNESS_MODEL_CODER=qwen2.5-coder:7b guanaco
+```
+
+If you haven't built yet, `guanaco` prints a reminder to run `npm run build`.
+
 ## Running the harness
 
 From inside a git repo (the harness operates only within the repo root):
