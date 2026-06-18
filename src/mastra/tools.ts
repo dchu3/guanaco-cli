@@ -101,25 +101,49 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
   const maxOut = opts.maxOutputBytes ?? 50_000;
   const execFn = opts.execImpl ?? execAsync;
 
+  // NOTE on schema shapes: every required argument is declared `.optional()` so
+  // that a model tool call with empty/missing args (e.g. `grep {}`) still
+  // PARSES — Mastra validates tool args against this schema at parse time and
+  // would otherwise throw AI_InvalidToolArgumentsError and crash the stream.
+  // Each `execute` then guards the missing field and returns an `error` result
+  // (never throws) so the agent is told what's missing and can retry. The same
+  // "return errors, don't throw" rule applies to jail/out-of-repo, not-found,
+  // invalid-regex, and git-diff failures: a thrown tool error surfaces as a
+  // Mastra "Error executing tool" and disrupts the stream.
+
   const readFileTool = createTool({
     id: 'read_file',
     description:
       'Read the contents of a file relative to the repo root. Returns the text (truncated for very large files).',
     inputSchema: z.object({
-      path: z.string().describe('Repo-relative path to the file.'),
+      path: z.string().optional().describe('Repo-relative path to the file.'),
       offset: z.number().int().min(1).optional().describe('1-indexed line to start reading from.'),
       limit: z.number().int().min(1).optional().describe('Max number of lines to read.'),
     }),
     execute: async (input) => {
-      const abs = jailPath(repoRoot, input.path);
-      let content = await readFile(abs, 'utf8');
+      const path = input.path;
+      if (!path || !path.trim()) {
+        return { path: path ?? '', content: '', error: 'read_file: "path" is required' };
+      }
+      let abs: string;
+      try {
+        abs = jailPath(repoRoot, path);
+      } catch (err) {
+        return { path, content: '', error: err instanceof Error ? err.message : String(err) };
+      }
+      let content: string;
+      try {
+        content = await readFile(abs, 'utf8');
+      } catch (err) {
+        return { path, content: '', error: `read_file: ${err instanceof Error ? err.message : String(err)}` };
+      }
       if (input.offset || input.limit) {
         const lines = content.split('\n');
         const start = (input.offset ?? 1) - 1;
         const end = input.limit ? start + input.limit : lines.length;
         content = lines.slice(Math.max(0, start), end).join('\n');
       }
-      return { path: input.path, content: truncate(content, maxOut) };
+      return { path, content: truncate(content, maxOut) };
     },
   });
 
@@ -128,15 +152,24 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
     description:
       'Create or overwrite a file relative to the repo root. Parent directories are created automatically.',
     inputSchema: z.object({
-      path: z.string().describe('Repo-relative path to the file.'),
-      content: z.string().describe('Full content to write.'),
+      path: z.string().optional().describe('Repo-relative path to the file.'),
+      content: z.string().optional().describe('Full content to write.'),
     }),
     execute: async (input) => {
-      const abs = jailPath(repoRoot, input.path);
-      await mkdir(join(abs, '..'), { recursive: true });
-      await writeFile(abs, input.content, 'utf8');
-      debug('harness-tool', `write_file ${input.path} (${Buffer.byteLength(input.content)} bytes)`);
-      return { path: input.path, bytes: Buffer.byteLength(input.content) };
+      const path = input.path;
+      if (!path || !path.trim()) {
+        return { path: path ?? '', bytes: 0, error: 'write_file: "path" is required' };
+      }
+      const content = input.content ?? '';
+      try {
+        const abs = jailPath(repoRoot, path);
+        await mkdir(join(abs, '..'), { recursive: true });
+        await writeFile(abs, content, 'utf8');
+        debug('harness-tool', `write_file ${path} (${Buffer.byteLength(content)} bytes)`);
+        return { path, bytes: Buffer.byteLength(content) };
+      } catch (err) {
+        return { path, bytes: 0, error: `write_file: ${err instanceof Error ? err.message : String(err)}` };
+      }
     },
   });
 
@@ -145,7 +178,7 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
     description:
       'Apply exact-text replacements to a file. Each edit must match a unique, non-overlapping region of the current file content. Prefer this over write_file for targeted changes.',
     inputSchema: z.object({
-      path: z.string().describe('Repo-relative path to the file.'),
+      path: z.string().optional().describe('Repo-relative path to the file.'),
       edits: z
         .array(
           z.object({
@@ -153,22 +186,34 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
             newText: z.string().describe('Replacement text.'),
           }),
         )
-        .min(1),
+        .optional(),
     }),
     execute: async (input) => {
-      const abs = jailPath(repoRoot, input.path);
-      let content = await readFile(abs, 'utf8');
-      for (const e of input.edits) {
-        const idx = content.indexOf(e.oldText);
-        if (idx === -1) {
-          throw new Error(`edit_file: oldText not found in ${input.path}`);
-        }
-        const after = content.slice(idx + e.oldText.length);
-        content = content.slice(0, idx) + e.newText + after;
+      const path = input.path;
+      if (!path || !path.trim()) {
+        return { path: path ?? '', appliedEdits: 0, error: 'edit_file: "path" is required' };
       }
-      await writeFile(abs, content, 'utf8');
-      debug('harness-tool', `edit_file ${input.path} (${input.edits.length} edits)`);
-      return { path: input.path, appliedEdits: input.edits.length };
+      const edits = input.edits ?? [];
+      if (edits.length === 0) {
+        return { path, appliedEdits: 0, error: 'edit_file: "edits" is required' };
+      }
+      try {
+        const abs = jailPath(repoRoot, path);
+        let content = await readFile(abs, 'utf8');
+        for (const e of edits) {
+          const idx = content.indexOf(e.oldText);
+          if (idx === -1) {
+            return { path, appliedEdits: 0, error: `edit_file: oldText not found in ${path}` };
+          }
+          const after = content.slice(idx + e.oldText.length);
+          content = content.slice(0, idx) + e.newText + after;
+        }
+        await writeFile(abs, content, 'utf8');
+        debug('harness-tool', `edit_file ${path} (${edits.length} edits)`);
+        return { path, appliedEdits: edits.length };
+      } catch (err) {
+        return { path, appliedEdits: 0, error: `edit_file: ${err instanceof Error ? err.message : String(err)}` };
+      }
     },
   });
 
@@ -177,10 +222,14 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
     description:
       'List repo-relative file paths matching a glob pattern (supports **, *, ?). Ignores node_modules and .git.',
     inputSchema: z.object({
-      pattern: z.string().describe('Glob pattern, e.g. "src/**/*.ts".'),
+      pattern: z.string().optional().describe('Glob pattern, e.g. "src/**/*.ts".'),
     }),
     execute: async (input) => {
-      const regex = globToRegex(input.pattern);
+      const pattern = input.pattern;
+      if (!pattern || !pattern.trim()) {
+        return { matches: [], error: 'glob: "pattern" is required' };
+      }
+      const regex = globToRegex(pattern);
       const files: string[] = [];
       await walk(repoRoot, files);
       const matches = files
@@ -196,19 +245,35 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
     description:
       'Search file contents under the repo root for a pattern (JavaScript RegExp string). Returns matching lines with file:line.',
     inputSchema: z.object({
-      pattern: z.string().describe('RegExp source, e.g. "function\\\\s+foo".'),
+      pattern: z.string().optional().describe('RegExp source, e.g. "function\\\\s+foo".'),
       path: z.string().optional().describe('Optional repo-relative dir/file to scope.'),
       maxResults: z.number().int().min(1).max(500).optional(),
     }),
     execute: async (input) => {
+      const pattern = input.pattern;
+      if (!pattern || !pattern.trim()) {
+        return { hits: [], error: 'grep: "pattern" is required' };
+      }
       let regex: RegExp;
       try {
-        regex = new RegExp(input.pattern);
+        regex = new RegExp(pattern);
       } catch (err) {
-        throw new Error(`grep: invalid pattern: ${err instanceof Error ? err.message : String(err)}`);
+        return {
+          hits: [],
+          error: `grep: invalid pattern: ${err instanceof Error ? err.message : String(err)}`,
+        };
       }
       const cap = input.maxResults ?? 100;
-      const root = input.path ? jailPath(repoRoot, input.path) : repoRoot;
+      let root: string;
+      if (input.path) {
+        try {
+          root = jailPath(repoRoot, input.path);
+        } catch (err) {
+          return { hits: [], error: err instanceof Error ? err.message : String(err) };
+        }
+      } else {
+        root = repoRoot;
+      }
       const files: string[] = [];
       if (input.path) {
         const s = await stat(root).catch(() => null);
@@ -239,21 +304,30 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
     description:
       'Run a shell command inside the repo root. Destructive/git-push/sudo commands are refused. Use for builds, linters, tests, and read-only git queries.',
     inputSchema: z.object({
-      command: z.string().describe('Command line to execute.'),
+      command: z.string().optional().describe('Command line to execute.'),
     }),
     execute: async (input) => {
+      const command = input.command;
+      if (!command || !command.trim()) {
+        return { ok: false, exitCode: -1, stdout: '', stderr: 'shell: "command" is required' };
+      }
       for (const deny of SHELL_DENYLIST) {
-        if (deny.test(input.command)) {
-          throw new Error(`shell: refused (matches denylist): ${input.command}`);
+        if (deny.test(command)) {
+          return {
+            ok: false,
+            exitCode: -1,
+            stdout: '',
+            stderr: `shell: refused (matches denylist): ${command}`,
+          };
         }
       }
-      debug('harness-tool', `shell: ${input.command}`);
+      debug('harness-tool', `shell: ${command}`);
       // A non-zero exit (failing tests/lint/build) is informative in an agentic
       // loop, not exceptional: return the output + exit code so the agent can
       // react (e.g. report TESTS_FAILED or fix the build). Throwing here would
       // surface as a Mastra "Error executing tool" and disrupt the stream.
       try {
-        const { stdout, stderr } = await execFn(input.command, {
+        const { stdout, stderr } = await execFn(command, {
           cwd: repoRoot,
           timeout: opts.toolTimeoutMs,
           maxBuffer: 1024 * 1024 * 4,
@@ -297,8 +371,12 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
     inputSchema: z.object({ staged: z.boolean().optional() }),
     execute: async (input) => {
       const cmd = input.staged ? 'git diff --cached' : 'git diff HEAD';
-      const { stdout } = await execFn(cmd, { cwd: repoRoot, timeout: opts.toolTimeoutMs, maxBuffer: 1024 * 1024 * 8 });
-      return { diff: truncate(stdout, maxOut * 4) };
+      try {
+        const { stdout } = await execFn(cmd, { cwd: repoRoot, timeout: opts.toolTimeoutMs, maxBuffer: 1024 * 1024 * 8 });
+        return { diff: truncate(stdout, maxOut * 4) };
+      } catch (err) {
+        return { diff: '', error: `git_diff: ${err instanceof Error ? err.message : String(err)}` };
+      }
     },
   });
 
