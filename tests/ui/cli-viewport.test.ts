@@ -1,7 +1,8 @@
-import { TUI, Container, Text, Spacer, Markdown, Editor, type MarkdownTheme, type EditorTheme, type Terminal } from '@earendil-works/pi-tui';
+import { TUI, Container, Text, Spacer, Markdown, Editor, CombinedAutocompleteProvider, type MarkdownTheme, type EditorTheme, type Terminal, type SlashCommand } from '@earendil-works/pi-tui';
 import chalk from 'chalk';
 import { describe, it, expect } from 'vitest';
 import { trimChatToFit, type ChatRegions } from '../../src/ui/layout.js';
+import { COMMANDS } from '../../src/commands.js';
 
 /** Minimal Terminal implementation for driving TUI.render without stdin. */
 class MockTerminal implements Terminal {
@@ -234,5 +235,65 @@ describe('CLI viewport while typing (real Editor, no per-keystroke trim)', () =>
     expect(term.clears - beforeClears).toBe(0);
     const lines = ui.render(cols);
     expect(lines.length).toBeLessThanOrEqual(rows);
+  });
+});
+
+describe('CLI slash-command autocomplete dropdown (real Editor + provider)', () => {
+  const slashCommands: SlashCommand[] = COMMANDS.map((c) => ({
+    name: c.name,
+    description: c.description,
+    ...(c.args ? { argumentHint: c.args } : {}),
+  }));
+
+  function buildAppWithAutocomplete(rows: number) {
+    const { ui, term, regions, editor, cols } = buildAppWithEditor(rows);
+    editor.setAutocompleteMaxVisible(COMMANDS.length);
+    editor.setAutocompleteProvider(
+      new CombinedAutocompleteProvider(slashCommands, process.cwd(), null),
+    );
+    return { ui, term, regions, editor, cols };
+  }
+
+  it('shows all commands in the dropdown when the user types a bare "/"', async () => {
+    const rows = 24;
+    const { ui, term, regions, editor, cols } = buildAppWithAutocomplete(rows);
+    renderChat(ui, regions);
+    await sleep(40);
+    const beforeClears = term.clears;
+
+    // Type a single '/' — the editor triggers the slash-menu autocomplete.
+    editor.handleInput('/');
+    await sleep(30); // let the async getSuggestions() resolve + render flush
+    ui.requestRender();
+    await sleep(20);
+
+    const lines = ui.render(cols).join('\n');
+    for (const cmd of COMMANDS) {
+      expect(lines).toContain(cmd.name);
+    }
+    // Opening the dropdown must not blank the screen.
+    expect(term.clears - beforeClears).toBe(0);
+    expect(editor.isShowingAutocomplete()).toBe(true);
+  });
+
+  it('filters the dropdown as the user types more of a command', async () => {
+    const rows = 24;
+    const { ui, regions, editor, cols } = buildAppWithAutocomplete(rows);
+    renderChat(ui, regions);
+    await sleep(40);
+
+    editor.handleInput('/');
+    await sleep(20);
+    editor.handleInput('h'); // → /h… matches /help only
+    editor.handleInput('e');
+    await sleep(30);
+    ui.requestRender();
+    await sleep(20);
+
+    const lines = ui.render(cols).join('\n');
+    expect(lines).toContain('/help');
+    // Other commands are filtered out by fuzzy match on "/he".
+    expect(lines).not.toContain('/feature');
+    expect(lines).not.toContain('/clear');
   });
 });

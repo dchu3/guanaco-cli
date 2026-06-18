@@ -51,6 +51,32 @@ branch.
 
 ## Target Design
 
+### 0. Live slash-menu autocomplete (the primary UX)
+
+Typing `/` pops the Editor's built-in slash dropdown listing every command,
+filtered live as you type; Tab/Enter completes the highlighted command. This
+is what the user actually wants ("options appear when I press /") and is wired
+in `src/cli.ts`:
+
+```ts
+import { CombinedAutocompleteProvider, type SlashCommand } from '@earendil-works/pi-tui';
+import { COMMANDS } from './commands.js';
+
+const slashCommands: SlashCommand[] = COMMANDS.map((c) => ({
+  name: c.name,
+  description: c.description,
+  ...(c.args ? { argumentHint: c.args } : {}),
+}));
+editor.setAutocompleteMaxVisible(COMMANDS.length); // show all 8 at once
+editor.setAutocompleteProvider(
+  new CombinedAutocompleteProvider(slashCommands, process.cwd(), null),
+);
+```
+
+With a slash prefix open, Enter **completes the highlighted command and
+submits it** (standard pi-tui behaviour). To submit a literal bare `/` and get
+the list as a chat message, close the dropdown with Escape first.
+
 ### 1. Extract a `COMMANDS` catalogue (single source of truth)
 
 Create `src/commands.ts` exporting a typed catalogue:
@@ -148,18 +174,24 @@ New Vitest file exercising the pure helper — no terminal needed:
 
 ## Implementation Steps
 
-1. `git checkout -b feature/slash-list-commands` *(done — this branch).*
-2. Add `src/commands.ts` with `CommandSpec`, `COMMANDS`, `formatCommandList`,
+0. `git checkout -b feature/slash-list-commands` *(done — this branch).*
+1. Add `src/commands.ts` with `CommandSpec`, `COMMANDS`, `formatCommandList`,
    `isBareSlash`.
-3. Edit `src/cli.ts`:
-   - import the new helpers;
+2. Edit `src/cli.ts`:
+   - import the new helpers + `CombinedAutocompleteProvider`/`SlashCommand`;
+   - wire the live slash-menu autocomplete provider onto the editor (step 0);
    - add the bare-`/` guard at the top of the slash dispatch;
    - rewrite the `/help` branch to call `formatCommandList()`.
-4. Add `tests/commands.test.ts` and run `npm test`.
+3. Fix `npm run dev` refresh: `tsx watch` intercepts Enter as a manual restart
+   trigger (`[tsx] Return key Restarting...`), so every submit restarted the
+   app and cleared the screen. Drop `watch` from `dev`; keep a separate
+   `dev:watch` script with `--clear-screen=false` for file-reload (caveat:
+   Enter still restarts in watch mode).
+4. Add `tests/commands.test.ts` and extend `tests/ui/cli-viewport.test.ts`
+   with dropdown-render + no-full-clear tests; run `npm test`.
 5. `npm run lint` and `npm run build` (tsc) to confirm no regressions.
-6. Manual smoke test via `npm run dev`: type `/` + Enter → catalogue appears;
-   type `/help` → identical catalogue; type `/nope` → "Unknown command" hint;
-   type empty → no-op.
+6. PTY smoke test (`script`) of both `npm run dev` and `npm start`: type `/` →
+   dropdown shows all 8 commands; `grep -c $'\x1b[2J'` stays 0 across the session.
 7. Commit + push the branch; open a PR for review.
 
 ## Risks & Notes

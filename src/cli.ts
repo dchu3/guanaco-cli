@@ -1,5 +1,6 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { CombinedAutocompleteProvider, type SlashCommand } from '@earendil-works/pi-tui';
 import {
   TUI,
   ProcessTerminal,
@@ -21,7 +22,7 @@ import { HarnessRunner } from './harness/runner.js';
 import type { GitOps } from './harness/git.js';
 import type { HarnessHooks, HarnessStep } from './harness/types.js';
 import { trimChatToFit, type ChatRegions } from './ui/layout.js';
-import { formatCommandList, isBareSlash } from './commands.js';
+import { COMMANDS, formatCommandList, isBareSlash } from './commands.js';
 
 export interface CliDeps {
   ollama: OllamaClient;
@@ -103,6 +104,21 @@ export async function startCli(deps: CliDeps): Promise<void> {
   const editor = new Editor(ui, EDITOR_THEME, { paddingX: 1 });
   editorContainer.addChild(editor);
   ui.setFocus(editor);
+
+  // Power the Editor's built-in slash menu: typing `/` pops a dropdown of all
+  // commands (filtered as you type, Tab/Enter completes). Built from the same
+  // `COMMANDS` catalogue as `/help` and the bare-`/` listing so they never
+  // drift. `basePath` enables the @-path file completions too. Show the whole
+  // catalogue at once (only 8 commands) instead of paginating 5-up.
+  const slashCommands: SlashCommand[] = COMMANDS.map((c) => ({
+    name: c.name,
+    description: c.description,
+    ...(c.args ? { argumentHint: c.args } : {}),
+  }));
+  editor.setAutocompleteMaxVisible(COMMANDS.length);
+  editor.setAutocompleteProvider(
+    new CombinedAutocompleteProvider(slashCommands, process.cwd(), null),
+  );
 
   // The four stacked regions. `trimChatToFit` keeps the chat region bounded
   // so the header stays pinned at the top and the editor at the bottom —
