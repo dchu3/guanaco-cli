@@ -26,6 +26,7 @@ import type { GitOps } from './harness/git.js';
 import type { HarnessHooks, HarnessStep } from './harness/types.js';
 import { layoutToFit, type ChatRegions } from './ui/layout.js';
 import { COMMANDS, formatCommandList, isBareSlash } from './commands.js';
+import { getLogFile, tailLog, logSizeBytes, logError } from './util/log.js';
 
 export interface CliDeps {
   ollama: OllamaClient;
@@ -375,6 +376,9 @@ export async function startCli(deps: CliDeps): Promise<void> {
       } else if (cmd === '/harness-status') {
         harnessStatus();
         continue;
+      } else if (cmd === '/log') {
+        showLog();
+        continue;
       } else if (cmd === '/feature') {
         if (!rest) {
           showStatus('Usage: /feature <description of the feature to implement>');
@@ -435,6 +439,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
       }
       stopSpinner();
     } catch (err) {
+      logError('chat', err);
       stopSpinner();
       statusContainer.addChild(
         new Text(chalk.red(`Error: ${err instanceof Error ? err.message : String(err)}`), 1, 0),
@@ -475,6 +480,29 @@ export async function startCli(deps: CliDeps): Promise<void> {
         `Turns logged: ${s.log.length}`,
       ].join('\n'),
     );
+  }
+
+  /** `/log`: show the debug log file path + a tail of recent entries, so errors
+   *  that the TUI overwrote on screen can be recovered in-app. */
+  function showLog(): void {
+    const file = getLogFile();
+    if (!file) {
+      addMessage('system', 'Debug log is disabled (could not resolve a log file path).');
+      return;
+    }
+    const tail = tailLog(40);
+    const size = logSizeBytes();
+    const body = [
+      `Debug log: ${file}`,
+      `Size: ${size} bytes · showing last ${tail.length} entries`,
+      '',
+      tail.length > 0 ? '```' : '(log is empty)',
+      ...tail,
+      tail.length > 0 ? '```' : '',
+    ]
+      .filter((l, i, arr) => !(l === '' && (i === 0 || i === arr.length - 1)))
+      .join('\n');
+    addMessage('system', body);
   }
 
   async function runHarness(prompt: string): Promise<void> {
@@ -538,6 +566,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
         .join('\n');
       addMessage('system', chalk.bold.cyan(tail));
     } catch (err) {
+      logError('harness', err);
       addMessage('system', chalk.red(`Harness error: ${err instanceof Error ? err.message : String(err)}`));
     } finally {
       stopSpinner();
