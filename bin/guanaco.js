@@ -77,13 +77,29 @@ if (args[0] === 'update') {
     process.exit(1);
   }
 
-  // `--env-file-if-exists=.env` resolves relative to cwd, so a .env in the repo
-  // you're running from is picked up automatically. Forward any extra CLI args
-  // (e.g. `--version`, `--model`, `--provider`) to the app.
+  // Load env from a global config (~/.config/guanaco/.env) then a per-repo
+  // .env in cwd (which overrides). Only pass --env-file for files that exist,
+  // so Node never prints its ".env not found. Continuing without it." notice.
+  // Uses the compiled helper from dist/env-files.js; falls back to an inline
+  // copy if the helper isn't built yet (so `guanaco` still launches pre-build).
+  let envFlags;
+  try {
+    const mod = await import('../dist/env-files.js');
+    envFlags = mod.resolveEnvFiles({ home: homedir(), cwd: process.cwd() });
+  } catch {
+    envFlags = [];
+    const globalEnv = join(homedir(), '.config', 'guanaco', '.env');
+    const localEnv = join(process.cwd(), '.env');
+    if (existsSync(globalEnv)) envFlags.push(`--env-file=${globalEnv}`);
+    if (existsSync(localEnv)) envFlags.push(`--env-file=${localEnv}`);
+  }
+
+  // Forward any extra CLI args (e.g. `--version`, `--model`, `--provider`)
+  // to the app.
   forwardExit(
     spawn(
       process.execPath,
-      ['--env-file-if-exists=.env', entry, ...args],
+      [...envFlags, entry, ...args],
       {
         stdio: 'inherit',
         cwd: process.cwd(),

@@ -78,9 +78,10 @@ guanaco                      # HARNESS_REPO_ROOT defaults to the current dir
 guanaco --version             # prints the installed version
 ```
 
-The wrapper loads `.env` from your current directory (so a `.env` in the target
-repo is picked up) and runs the compiled app — no `tsx watch`, so no file-watch
-restarts. Point it at a repo elsewhere with `HARNESS_REPO_ROOT`:
+The wrapper loads env config from `~/.config/guanaco/.env` (global) and your
+current directory's `.env` (per-repo override; see [Environment variables](#environment-variables))
+and runs the compiled app — no `tsx watch`, so no file-watch restarts. Point it
+at a repo elsewhere with `HARNESS_REPO_ROOT`:
 
 ```bash
 HARNESS_REPO_ROOT=/path/to/other-repo guanaco
@@ -138,6 +139,15 @@ Other commands:
 Plain text (not starting with `/` or `!`) is a regular single-agent chat via the Ollama client.
 
 ## Environment variables
+
+`guanaco` loads env vars from (in override order):
+
+1. **`~/.config/guanaco/.env`** — global config, applies in every repo. Put your
+   usual Ollama URL + model here so you don't need a `.env` in each repo.
+2. **`<cwd>/.env`** — per-repo override (wins over the global).
+
+Only files that exist are loaded (so Node never prints `.env not found`), and
+plain exported env vars from your shell profile work too.
 
 | Variable               | Required | Default                  | Notes                                  |
 | ---------------------- | :------: | ------------------------ | -------------------------------------- |
