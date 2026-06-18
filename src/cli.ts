@@ -110,8 +110,13 @@ export async function startCli(deps: CliDeps): Promise<void> {
   // `COMMANDS` catalogue as `/help` and the bare-`/` listing so they never
   // drift. `basePath` enables the @-path file completions too. Show the whole
   // catalogue at once (only 8 commands) instead of paginating 5-up.
+  //
+  // NOTE: CombinedAutocompleteProvider expects slash-command names WITHOUT the
+  // leading '/' — it prepends the '/' itself in applyCompletion()
+  // (`${beforePrefix}/${item.value} `). Passing '/feature' would complete to
+  // '//feature'. `COMMANDS` keeps the '/' for dispatch/display, so strip it here.
   const slashCommands: SlashCommand[] = COMMANDS.map((c) => ({
-    name: c.name,
+    name: c.name.slice(1),
     description: c.description,
     ...(c.args ? { argumentHint: c.args } : {}),
   }));

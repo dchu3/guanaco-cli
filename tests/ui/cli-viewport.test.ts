@@ -239,8 +239,10 @@ describe('CLI viewport while typing (real Editor, no per-keystroke trim)', () =>
 });
 
 describe('CLI slash-command autocomplete dropdown (real Editor + provider)', () => {
+  // CombinedAutocompleteProvider expects names WITHOUT the leading '/' (it
+  // prepends '/' on completion). Mirror cli.ts exactly to catch drift.
   const slashCommands: SlashCommand[] = COMMANDS.map((c) => ({
-    name: c.name,
+    name: c.name.slice(1),
     description: c.description,
     ...(c.args ? { argumentHint: c.args } : {}),
   }));
@@ -269,8 +271,11 @@ describe('CLI slash-command autocomplete dropdown (real Editor + provider)', () 
 
     const lines = ui.render(cols).join('\n');
     for (const cmd of COMMANDS) {
-      expect(lines).toContain(cmd.name);
+      // Dropdown lists names without the leading '/' (pi-tui prepends it).
+      expect(lines).toContain(cmd.name.slice(1));
     }
+    // No double-slash anywhere (the regression that produced "//help").
+    expect(lines).not.toContain('//');
     // Opening the dropdown must not blank the screen.
     expect(term.clears - beforeClears).toBe(0);
     expect(editor.isShowingAutocomplete()).toBe(true);
@@ -291,9 +296,29 @@ describe('CLI slash-command autocomplete dropdown (real Editor + provider)', () 
     await sleep(20);
 
     const lines = ui.render(cols).join('\n');
-    expect(lines).toContain('/help');
-    // Other commands are filtered out by fuzzy match on "/he".
-    expect(lines).not.toContain('/feature');
-    expect(lines).not.toContain('/clear');
+    expect(lines).toContain('help');
+    // Other commands are filtered out by fuzzy match on "he".
+    expect(lines).not.toContain('feature');
+    expect(lines).not.toContain('clear');
+  });
+
+  it('completes to a single leading slash (no "//help" regression)', async () => {
+    const rows = 24;
+    const { ui, regions, editor } = buildAppWithAutocomplete(rows);
+    renderChat(ui, regions);
+    await sleep(40);
+
+    editor.handleInput('/');
+    await sleep(20);
+    editor.handleInput('h');
+    editor.handleInput('e');
+    await sleep(30);
+    // Tab completes the highlighted /help into the editor (no submit).
+    editor.handleInput('\t');
+    await sleep(20);
+
+    const text = editor.getText();
+    expect(text.startsWith('/help')).toBe(true);
+    expect(text).not.toContain('//');
   });
 });
