@@ -85,6 +85,25 @@ describe('buildSdlcTools', () => {
   it('shell runs commands in the repo root', async () => {
     const out = await tools().tools.shell.execute({ command: 'pwd' }, {} as never);
     expect(out.stdout.trim()).toBe(repo);
+    expect(out.exitCode).toBe(0);
+  });
+
+  it('shell returns exitCode + output instead of throwing on non-zero exit', async () => {
+    const out = await tools().tools.shell.execute(
+      { command: "node -e 'console.log(\"out\"); console.error(\"err\"); process.exit(3)'" },
+      {} as never,
+    );
+    expect(out.exitCode).toBe(3);
+    expect(out.stdout).toContain('out');
+    expect(out.stderr).toContain('err');
+  });
+
+  it('shell surfaces a missing script (npm test) as a non-zero result, not a throw', async () => {
+    // The fresh test repo has no package.json, so 'npm test' exits non-zero.
+    const out = await tools().tools.shell.execute({ command: 'npm test' }, {} as never);
+    expect(out.exitCode).not.toBe(0);
+    // Some clue is surfaced (npm prints usage/errors to stderr).
+    expect(out.stderr.length + out.stdout.length).toBeGreaterThan(0);
   });
 
   it('shell refuses denylisted commands', async () => {

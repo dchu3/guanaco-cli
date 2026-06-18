@@ -237,7 +237,7 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
   const shellTool = createTool({
     id: 'shell',
     description:
-      'Run a shell command inside the repo root. Destructive/git-push/sudo commands are refused. Use for builds, linters, tests, and read-only git queries.',
+      'Run a shell command inside the repo root. Destructive/git-push/sudo commands are refused. Use for builds, linters, tests, and read-only git queries. Returns stdout, stderr, and exitCode; a non-zero exitCode is NOT an error — inspect it and the output to diagnose build/test failures.',
     inputSchema: z.object({
       command: z.string().describe('Command line to execute.'),
     }),
@@ -248,14 +248,49 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
         }
       }
       debug('harness-tool', `shell: ${input.command}`);
-      const { stdout, stderr } = await execFn(input.command, {
-        cwd: repoRoot,
-        timeout: opts.toolTimeoutMs,
-        maxBuffer: 1024 * 1024 * 4,
-      });
+      // A non-zero exit (failing tests/build, missing script) is expected for a
+      // coding agent — surface stdout/stderr/exitCode so it can diagnose and
+      // fix, instead of aborting the turn. Timeouts and spawn errors are also
+      // surfaced (with a note) rather than thrown; only the denylist throws.
+      let stdout = '';
+      let stderr = '';
+      let exitCode = 0;
+      try {
+        const res = await execFn(input.command, {
+          cwd: repoRoot,
+          timeout: opts.toolTimeoutMs,
+          maxBuffer: 1024 * 1024 * 4,
+        });
+        stdout = res.stdout;
+        stderr = res.stderr;
+      } catch (err) {
+        const e = err as {
+          stdout?: string;
+          stderr?: string;
+          code?: number | string;
+          signal?: string;
+          killed?: boolean;
+          message?: string;
+        };
+        stdout = e.stdout ?? '';
+        stderr = e.stderr ?? '';
+        if (e.killed) {
+          stderr = `${stderr}\n[timed out after ${opts.toolTimeoutMs}ms]`.trim();
+          exitCode = -1;
+        } else if (typeof e.code === 'number') {
+          exitCode = e.code;
+        } else {
+          // Spawn/parse error (e.g. ENOENT). Give the agent a clue.
+          exitCode = -1;
+          if (!stdout && !stderr) {
+            stderr = `shell: failed to run '${input.command}': ${e.message ?? String(err)}`;
+          }
+        }
+      }
       return {
         stdout: truncate(stdout, maxOut),
         stderr: truncate(stderr, maxOut),
+        exitCode,
       };
     },
   });
