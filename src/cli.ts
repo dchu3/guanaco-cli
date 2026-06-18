@@ -14,11 +14,20 @@ import {
 import chalk from 'chalk';
 import type { OllamaClient } from './ollama.js';
 import type { ToolRegistry } from './tools.js';
+import type { HarnessConfig, SdlcRole } from './config.js';
+import type { SdlcAgents } from './mastra/agents.js';
+import { DEFAULT_ROLE_MODELS } from './mastra/models.js';
+import { HarnessRunner } from './harness/runner.js';
+import type { GitOps } from './harness/git.js';
+import type { HarnessHooks, HarnessStep } from './harness/types.js';
 
 export interface CliDeps {
   ollama: OllamaClient;
   tools: ToolRegistry;
   streamEnabled: boolean;
+  harnessAgents?: SdlcAgents;
+  harnessConfig?: HarnessConfig;
+  gitOps?: GitOps;
 }
 
 const MARKDOWN_THEME: MarkdownTheme = {
@@ -49,6 +58,25 @@ const EDITOR_THEME: EditorTheme = {
   },
 };
 
+const AGENT_LABEL: Record<SdlcRole, string> = {
+  orchestrator: 'Orchestrator',
+  product: 'Product',
+  architect: 'Architect',
+  coder: 'Coder',
+  reviewer: 'Reviewer',
+  tester: 'Tester',
+};
+
+const STEP_LABEL: Record<HarnessStep, string> = {
+  intake: 'Intake',
+  requirements: 'Requirements',
+  design: 'Design',
+  implement: 'Implement',
+  review: 'Review',
+  test: 'Test',
+  finalize: 'Finalize',
+};
+
 const execAsync = promisify(exec);
 
 export async function startCli(deps: CliDeps): Promise<void> {
@@ -70,10 +98,24 @@ export async function startCli(deps: CliDeps): Promise<void> {
   editorContainer.addChild(editor);
   ui.setFocus(editor);
 
-  headerContainer.addChild(new Spacer(1));
-  headerContainer.addChild(new Text(chalk.bold.cyan('  Guanaco CLI 🦙'), 1, 0));
-  headerContainer.addChild(new Text(chalk.dim(`  Model: ${deps.ollama.currentModel}`), 1, 0));
-  headerContainer.addChild(new Spacer(1));
+  let activeRunner: HarnessRunner | undefined;
+
+  function renderHeader(): void {
+    headerContainer.clear();
+    headerContainer.addChild(new Spacer(1));
+    headerContainer.addChild(new Text(chalk.bold.cyan('  Guanaco CLI 🦙  ·  SDLC harness'), 1, 0));
+    const provider = deps.harnessConfig?.provider ?? 'local';
+    headerContainer.addChild(
+      new Text(
+        chalk.dim(`  Model: ${deps.ollama.currentModel}  ·  chat provider: ${provider}`),
+        1,
+        0,
+      ),
+    );
+    headerContainer.addChild(new Spacer(1));
+    ui.requestRender();
+  }
+  renderHeader();
 
   function addMessage(role: string, content: string): Markdown {
     let prefix = '';
@@ -91,28 +133,51 @@ export async function startCli(deps: CliDeps): Promise<void> {
     return msg;
   }
 
-  function showStatus(message: string) {
+  function addAgentMessage(role: SdlcRole, content: string): Markdown {
+    chatContainer.addChild(new Spacer(1));
+    const msg = new Markdown(
+      `${chalk.bold.magenta(`[${AGENT_LABEL[role]}]`)}\n${content}`,
+      1,
+      0,
+      MARKDOWN_THEME,
+    );
+    chatContainer.addChild(msg);
+    ui.requestRender();
+    return msg;
+  }
+
+  function showStatus(message: string): void {
     statusContainer.clear();
     statusContainer.addChild(new Text(chalk.dim(`  ${message}`), 1, 0));
     ui.requestRender();
+  }
+
+  function clearStatus(): void {
+    statusContainer.clear();
+    ui.requestRender();
+  }
+
+  function nextInput(): Promise<string> {
+    return new Promise<string>((resolve) => {
+      editor.onSubmit = (text) => {
+        editor.onSubmit = undefined;
+        resolve(text);
+      };
+    });
   }
 
   ui.start();
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const input = await new Promise<string>((resolve) => {
-      editor.onSubmit = (text) => {
-        editor.onSubmit = undefined;
-        resolve(text);
-      };
-    });
-
+    const input = await nextInput();
     const trimmed = input.trim();
     if (!trimmed) continue;
 
     if (trimmed.startsWith('/')) {
       const [cmd, ...args] = trimmed.split(' ');
+      const rest = trimmed.slice(cmd.length).trim();
+
       if (cmd === '/exit' || cmd === '/quit') {
         ui.stop();
         process.exit(0);
@@ -124,18 +189,41 @@ export async function startCli(deps: CliDeps): Promise<void> {
         const modelName = args[0];
         if (modelName) {
           deps.ollama.setModel(modelName);
-          headerContainer.clear();
-          headerContainer.addChild(new Spacer(1));
-          headerContainer.addChild(new Text(chalk.bold.cyan('  Guanaco CLI 🦙'), 1, 0));
-          headerContainer.addChild(new Text(chalk.dim(`  Model: ${deps.ollama.currentModel}`), 1, 0));
-          headerContainer.addChild(new Spacer(1));
+          renderHeader();
           showStatus(`Switched to model: ${modelName}`);
         } else {
           showStatus('Usage: /model <name>');
         }
         continue;
+      } else if (cmd === '/agents') {
+        listAgents();
+        continue;
+      } else if (cmd === '/harness-status') {
+        harnessStatus();
+        continue;
+      } else if (cmd === '/feature') {
+        if (!rest) {
+          showStatus('Usage: /feature <description of the feature to implement>');
+          continue;
+        }
+        await runHarness(rest);
+        continue;
       } else if (cmd === '/help') {
-        addMessage('system', 'Available Commands:\n- /help: Show this help\n- /clear: Clear chat history\n- /model <name>: Change model\n- /exit: Exit the application\n- !<command>: Execute shell command');
+        addMessage(
+          'system',
+          'Available Commands:\n' +
+            '- /feature <prompt>: run the SDLC harness to implement a feature\n' +
+            '- /agents: list the SDLC agents and their models\n' +
+            '- /harness-status: show the current/last harness run state\n' +
+            '- /help: Show this help\n' +
+            '- /clear: Clear chat history\n' +
+            '- /model <name>: Change chat model\n' +
+            '- /exit: Exit the application\n' +
+            '- !<command>: Execute shell command',
+        );
+        continue;
+      } else {
+        showStatus(`Unknown command: ${cmd}  (try /help)`);
         continue;
       }
     }
@@ -147,28 +235,23 @@ export async function startCli(deps: CliDeps): Promise<void> {
         showStatus(`Executing: ${command}`);
         try {
           const { stdout, stderr } = await execAsync(command);
-          if (stdout) {
-            addMessage('system', stdout.trim());
-          }
-          if (stderr) {
-            addMessage('system', chalk.yellow(stderr.trim()));
-          }
+          if (stdout) addMessage('system', stdout.trim());
+          if (stderr) addMessage('system', chalk.yellow(stderr.trim()));
         } catch (err: unknown) {
           const execError = err as { stdout?: string; stderr?: string; message?: string };
-          if (execError.stdout) {
-            addMessage('system', execError.stdout.trim());
-          }
-          if (execError.stderr) {
-            addMessage('system', chalk.yellow(execError.stderr.trim()));
-          }
-          addMessage('system', chalk.red(`Error executing command: ${err instanceof Error ? err.message : String(err)}`));
+          if (execError.stdout) addMessage('system', execError.stdout.trim());
+          if (execError.stderr) addMessage('system', chalk.yellow(execError.stderr.trim()));
+          addMessage(
+            'system',
+            chalk.red(`Error executing command: ${err instanceof Error ? err.message : String(err)}`),
+          );
         }
-        statusContainer.clear();
-        ui.requestRender();
+        clearStatus();
         continue;
       }
     }
 
+    // Default: legacy single-agent chat via the OllamaClient.
     addMessage('user', trimmed);
     const assistantMsg = addMessage('assistant', '...');
     let fullResponse = '';
@@ -186,12 +269,114 @@ export async function startCli(deps: CliDeps): Promise<void> {
       if (!deps.streamEnabled) {
         assistantMsg.setText(`${chalk.bold.cyan('Assistant: ')}\n${response}`);
       }
-      statusContainer.clear();
-      ui.requestRender();
+      clearStatus();
     } catch (err) {
-      statusContainer.clear();
-      statusContainer.addChild(new Text(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`), 1, 0));
+      clearStatus();
+      statusContainer.addChild(
+        new Text(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`), 1, 0),
+      );
       ui.requestRender();
+    }
+  }
+
+  function listAgents(): void {
+    if (!deps.harnessConfig || !deps.harnessAgents) {
+      addMessage('system', 'Harness not configured.');
+      return;
+    }
+    const cfg = deps.harnessConfig;
+    const lines = ['SDLC agents:', ''];
+    (Object.keys(DEFAULT_ROLE_MODELS) as SdlcRole[]).forEach((role) => {
+      const model = cfg.roleModels[role] ?? DEFAULT_ROLE_MODELS[role];
+      lines.push(`- ${AGENT_LABEL[role]}  ·  ${model}  ·  ${cfg.provider}`);
+    });
+    lines.push('', `Provider: ${cfg.provider}  ·  Repo: ${cfg.repoRoot}`);
+    addMessage('system', lines.join('\n'));
+  }
+
+  function harnessStatus(): void {
+    if (!activeRunner) {
+      addMessage('system', 'No harness run yet. Start one with /feature <prompt>.');
+      return;
+    }
+    const s = activeRunner.status();
+    addMessage(
+      'system',
+      [
+        `Step: ${STEP_LABEL[s.step]}`,
+        `Review attempts: ${s.reviewAttempts}`,
+        `Test attempts: ${s.testAttempts}`,
+        `Reviewer verdict: ${s.lastReviewerVerdict ?? '—'}`,
+        `Tester verdict: ${s.lastTesterVerdict ?? '—'}`,
+        `Turns logged: ${s.log.length}`,
+      ].join('\n'),
+    );
+  }
+
+  async function runHarness(prompt: string): Promise<void> {
+    if (!deps.harnessAgents || !deps.harnessConfig || !deps.gitOps) {
+      addMessage('system', 'Harness not configured (agents/config/git missing).');
+      return;
+    }
+
+    addMessage('user', `/feature ${prompt}`);
+    showStatus('Starting SDLC harness…');
+
+    let currentMsg: Markdown | undefined;
+
+    const hooks: HarnessHooks = {
+      onStep: (step, phase) => {
+        showStatus(`${phase === 'start' ? '▶' : '✔'} ${STEP_LABEL[step]}`);
+      },
+      onAgentDelta: (role, _delta, full) => {
+        if (!currentMsg) currentMsg = addAgentMessage(role, full);
+        else currentMsg.setText(`${chalk.bold.magenta(`[${AGENT_LABEL[role]}]`)}\n${full}`);
+        ui.requestRender();
+      },
+      onAgentMessage: (role, text) => {
+        if (currentMsg) {
+          currentMsg.setText(`${chalk.bold.magenta(`[${AGENT_LABEL[role]}]`)}\n${text}`);
+        } else {
+          currentMsg = addAgentMessage(role, text);
+        }
+        ui.requestRender();
+        currentMsg = undefined;
+      },
+      onInfo: (text) => {
+        addMessage('system', chalk.dim(text));
+      },
+      onSuspend: async (_reason, ask) => {
+        addMessage('system', chalk.bold.yellow(`⚠ ${ask}`));
+        showStatus('Awaiting your input (type below and press Enter)…');
+        const answer = await nextInput();
+        clearStatus();
+        return answer;
+      },
+    };
+
+    const runner = new HarnessRunner({
+      agents: deps.harnessAgents,
+      config: deps.harnessConfig,
+      git: deps.gitOps,
+      hooks,
+    });
+    activeRunner = runner;
+
+    try {
+      const result = await runner.run(prompt);
+      const tail = [
+        `Harness finished: ${result.endReason}`,
+        result.branch ? `Branch: ${result.branch}` : null,
+        result.commit ? `Commit: ${result.commit.slice(0, 9)}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      addMessage('system', chalk.bold.cyan(tail));
+    } catch (err) {
+      addMessage('system', chalk.red(`Harness error: ${err instanceof Error ? err.message : String(err)}`));
+    } finally {
+      clearStatus();
+      activeRunner = undefined;
     }
   }
 }
