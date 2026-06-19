@@ -133,7 +133,7 @@ From inside a git repo (the harness operates only within the repo root):
 ```
 
 The harness will:
-1. **Intake** — the Orchestrator decomposes the request into a plan, then (by default) pause for you to confirm or refine.
+1. **Intake** — the Orchestrator decomposes the request into a plan, then (by default) pause for you to confirm or refine. (Agent turns render only their **completed** result, not a live token stream — a spinner + step label shows progress while each agent works.)
 2. **Requirements** — the Product agent writes acceptance criteria.
 3. **Design** — the Architect explores the repo and proposes a change set.
 4. **Implement** — the Coder edits files and runs the build via the `shell` tool.
