@@ -68,6 +68,27 @@ function isNoSuchToolError(err: unknown): { toolName: string | undefined } | und
   return { toolName };
 }
 
+/** Detect AI SDK / Mastra "Invalid arguments for tool" errors. */
+function isInvalidToolArgumentsError(err: unknown): { toolName: string | undefined } | undefined {
+  if (err === null || err === undefined) return undefined;
+  const msg = err instanceof Error ? err.message : String(err);
+  const isMatch =
+    /InvalidToolArgumentsError|AI_InvalidToolArgumentsError|Invalid arguments for tool/i.test(msg) ||
+    (err instanceof Error &&
+      (err.name === 'InvalidToolArgumentsError' ||
+        err.name === 'AI_InvalidToolArgumentsError' ||
+        (err.cause instanceof Error && /InvalidToolArgumentsError|AI_InvalidToolArgumentsError/i.test(err.cause.name))));
+  if (!isMatch) return undefined;
+  let toolName: string | undefined;
+  const match = msg.match(/Invalid arguments for tool (\w+)/i);
+  if (match) toolName = match[1];
+  else {
+    const generic = msg.match(/tool (\w+):/i);
+    if (generic) toolName = generic[1];
+  }
+  return { toolName };
+}
+
 export interface HarnessRunnerOptions {
   agents: SdlcAgents;
   config: HarnessConfig;
@@ -229,6 +250,12 @@ export class HarnessRunner {
       if (noTool) {
         const name = noTool.toolName ?? 'unknown';
         await this.info(`${role} tried to call unavailable tool '${name}'. Stopping turn.`);
+        throw new HarnessAbortError('tool-error');
+      }
+      const invalidArgs = isInvalidToolArgumentsError(err);
+      if (invalidArgs) {
+        const name = invalidArgs.toolName ?? 'unknown';
+        await this.info(`${role} sent invalid arguments to tool '${name}'. Stopping turn.`);
         throw new HarnessAbortError('tool-error');
       }
       if ((abortReason === 'timeout' || abortReason === 'output-cap') && recoverOnTimeout) {

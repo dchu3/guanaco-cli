@@ -330,27 +330,43 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
     inputSchema: z.object({
       path: z.string().optional().describe('Repo-relative path to the file.'),
       edits: z
-        .array(
-          // Models sometimes emit `old`/`new`, `old_str`/`new_str`, or
-          // `find`/`replace` instead of `oldText`/`newText`; normalize before
-          // the schema validates so those calls parse.
-          z.preprocess(
-            (v) => {
-              if (v && typeof v === 'object') {
-                const o = v as Record<string, unknown>;
-                return {
-                  oldText: o.oldText ?? o.old ?? o.old_str ?? o.find,
-                  newText: o.newText ?? o.new ?? o.new_str ?? o.replace,
-                };
-              }
-              return v;
-            },
-            z.object({
-              oldText: z.string().optional().describe('Exact text to find.'),
-              newText: z.string().optional().describe('Replacement text.'),
-            }),
+        .union([
+          z.array(
+            // Models sometimes emit `old`/`new`, `old_str`/`new_str`, or
+            // `find`/`replace` instead of `oldText`/`newText`; normalize before
+            // the schema validates so those calls parse.
+            z.preprocess(
+              (v) => {
+                if (v && typeof v === 'object') {
+                  const o = v as Record<string, unknown>;
+                  return {
+                    oldText: o.oldText ?? o.old ?? o.old_str ?? o.find,
+                    newText: o.newText ?? o.new ?? o.new_str ?? o.replace,
+                  };
+                }
+                return v;
+              },
+              z.object({
+                oldText: z.string().optional().describe('Exact text to find.'),
+                newText: z.string().optional().describe('Replacement text.'),
+              }),
+            ),
           ),
-        )
+          // Some models (especially via the Ollama cloud router) send `edits`
+          // as a JSON-encoded string instead of a real array. Coerce it so the
+          // call parses and `execute` can retry/apply rather than crashing the
+          // whole stream with AI_InvalidToolArgumentsError.
+          z.string().transform((s) => {
+            const trimmed = s.trim();
+            if (!trimmed) return [];
+            try {
+              const parsed = JSON.parse(trimmed);
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [];
+            }
+          }),
+        ])
         .optional(),
     }),
     execute: async (input) => {
@@ -358,15 +374,18 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
       if (!path || !path.trim()) {
         return { path: path ?? '', appliedEdits: 0, error: 'edit_file: "path" is required' };
       }
-      // input.edits is typed as unknown[] (preprocess input); normalize aliases
-      // here too so direct callers work the same as model tool-calls.
-      const rawEdits = (input.edits ?? []) as Array<Record<string, string | undefined>>;
+      // input.edits may be an array or, after coercion, an empty array from a
+      // malformed string. Treat non-arrays as empty so callers and models get a
+      // clear retry signal instead of a thrown tool error.
+      const rawEdits = Array.isArray(input.edits)
+        ? (input.edits as Array<Record<string, unknown>>)
+        : [];
       const edits = rawEdits.map((e) => ({
-        oldText: e.oldText ?? e.old ?? e.old_str ?? e.find,
-        newText: e.newText ?? e.new ?? e.new_str ?? e.replace,
+        oldText: (e.oldText ?? e.old ?? e.old_str ?? e.find) as string | undefined,
+        newText: (e.newText ?? e.new ?? e.new_str ?? e.replace) as string | undefined,
       }));
       if (edits.length === 0) {
-        return { path, appliedEdits: 0, error: 'edit_file: "edits" is required' };
+        return { path, appliedEdits: 0, error: 'edit_file: "edits" is required (must be a non-empty array)' };
       }
       try {
         const abs = jailPath(repoRoot, path);

@@ -94,6 +94,29 @@ describe('buildSdlcTools', () => {
     expect(out.error).toMatch(/oldText.*newText|newText.*oldText/);
   });
 
+  it('edit_file coerces a JSON-stringified edits array into a real array', async () => {
+    const ts = tools();
+    const editsJson = JSON.stringify([{ oldText: 'foo = 1', newText: 'foo = 123' }]);
+    const out = await ts.tools.edit_file.execute({ path: 'src/a.ts', edits: editsJson }, {} as never);
+    expect(out.appliedEdits).toBe(1);
+    const r = await ts.tools.read_file.execute({ path: 'src/a.ts' }, {} as never);
+    expect(r.content).toContain('foo = 123');
+  });
+
+  it('edit_file returns a clear error when edits is an empty/whitespace string', async () => {
+    const t = tools().tools.edit_file;
+    const out = await t.execute({ path: 'src/a.ts', edits: '   ' }, {} as never);
+    expect(out.appliedEdits).toBe(0);
+    expect(out.error).toMatch(/edits.*required/);
+  });
+
+  it('edit_file returns a clear error when edits is an invalid JSON string', async () => {
+    const t = tools().tools.edit_file;
+    const out = await t.execute({ path: 'src/a.ts', edits: 'not-json' }, {} as never);
+    expect(out.appliedEdits).toBe(0);
+    expect(out.error).toMatch(/edits.*required/);
+  });
+
   it('edit_file accepts old/new (and old_str/new_str) aliases for oldText/newText', async () => {
     const ts = tools();
     await ts.tools.edit_file.execute(
