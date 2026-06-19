@@ -27,8 +27,8 @@ function makeConfig(repoRoot: string, over: Partial<HarnessConfig> = {}): Harnes
 }
 
 /** A mock model that returns the given text and never calls tools. */
-function mockModel(text: string) {
-  return createMockModel({ mockText: text, version: 'v2' }) as never;
+function mockModel(text: string, version: 'v1' | 'v2' = 'v2') {
+  return createMockModel({ mockText: text, version }) as never;
 }
 
 describe('createSdlcAgents (real Mastra Agent + mock model)', () => {
@@ -45,6 +45,28 @@ describe('createSdlcAgents (real Mastra Agent + mock model)', () => {
       for await (const delta of out.textStream) full += delta;
       expect((await out.text).trim()).toBe('hello from coder');
       expect(full.trim()).toBe('hello from coder');
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to streamLegacy() for an AI SDK v4 model (the ollama case)', async () => {
+    // A v1 mock model is AI SDK v4: Mastra's Agent#stream() rejects it with
+    // "AI SDK v4 model … not compatible with stream()". The wrapper should
+    // catch that and route through streamLegacy() so /feature works for both
+    // the local ollama-ai-provider and the ollama-cloud router.
+    const repo = await mkdtemp(join(tmpdir(), 'sdlc-v4-'));
+    try {
+      const toolSet = buildSdlcTools({ repoRoot: repo, toolTimeoutMs: 5000 });
+      const agents = createSdlcAgents({
+        getModel: () => mockModel('v4 orchestrator plan', 'v1'),
+        toolSet,
+      });
+      const out = await agents.orchestrator.stream('plan a feature');
+      let full = '';
+      for await (const delta of out.textStream) full += delta;
+      expect((await out.text).trim()).toBe('v4 orchestrator plan');
+      expect(full.trim()).toBe('v4 orchestrator plan');
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

@@ -101,25 +101,49 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
   const maxOut = opts.maxOutputBytes ?? 50_000;
   const execFn = opts.execImpl ?? execAsync;
 
+  // NOTE on schema shapes: every required argument is declared `.optional()` so
+  // that a model tool call with empty/missing args (e.g. `grep {}`) still
+  // PARSES — Mastra validates tool args against this schema at parse time and
+  // would otherwise throw AI_InvalidToolArgumentsError and crash the stream.
+  // Each `execute` then guards the missing field and returns an `error` result
+  // (never throws) so the agent is told what's missing and can retry. The same
+  // "return errors, don't throw" rule applies to jail/out-of-repo, not-found,
+  // invalid-regex, and edit_file oldText-not-found: a thrown tool error
+  // surfaces as a Mastra "Error executing tool" and disrupts the stream.
+
   const readFileTool = createTool({
     id: 'read_file',
     description:
       'Read the contents of a file relative to the repo root. Returns the text (truncated for very large files).',
     inputSchema: z.object({
-      path: z.string().describe('Repo-relative path to the file.'),
+      path: z.string().optional().describe('Repo-relative path to the file.'),
       offset: z.number().int().min(1).optional().describe('1-indexed line to start reading from.'),
       limit: z.number().int().min(1).optional().describe('Max number of lines to read.'),
     }),
     execute: async (input) => {
-      const abs = jailPath(repoRoot, input.path);
-      let content = await readFile(abs, 'utf8');
+      const path = input.path;
+      if (!path || !path.trim()) {
+        return { path: path ?? '', content: '', error: 'read_file: "path" is required' };
+      }
+      let abs: string;
+      try {
+        abs = jailPath(repoRoot, path);
+      } catch (err) {
+        return { path, content: '', error: err instanceof Error ? err.message : String(err) };
+      }
+      let content: string;
+      try {
+        content = await readFile(abs, 'utf8');
+      } catch (err) {
+        return { path, content: '', error: `read_file: ${err instanceof Error ? err.message : String(err)}` };
+      }
       if (input.offset || input.limit) {
         const lines = content.split('\n');
         const start = (input.offset ?? 1) - 1;
         const end = input.limit ? start + input.limit : lines.length;
         content = lines.slice(Math.max(0, start), end).join('\n');
       }
-      return { path: input.path, content: truncate(content, maxOut) };
+      return { path, content: truncate(content, maxOut) };
     },
   });
 
@@ -128,69 +152,97 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
     description:
       'Create or overwrite a file relative to the repo root. Parent directories are created automatically.',
     inputSchema: z.object({
-      path: z.string().describe('Repo-relative path to the file.'),
-      content: z.string().describe('Full content to write.'),
+      path: z.string().optional().describe('Repo-relative path to the file.'),
+      content: z.string().optional().describe('Full content to write.'),
     }),
     execute: async (input) => {
-      const abs = jailPath(repoRoot, input.path);
-      await mkdir(join(abs, '..'), { recursive: true });
-      await writeFile(abs, input.content, 'utf8');
-      debug('harness-tool', `write_file ${input.path} (${Buffer.byteLength(input.content)} bytes)`);
-      return { path: input.path, bytes: Buffer.byteLength(input.content) };
+      const path = input.path;
+      if (!path || !path.trim()) {
+        return { path: path ?? '', bytes: 0, error: 'write_file: "path" is required' };
+      }
+      const content = input.content ?? '';
+      try {
+        const abs = jailPath(repoRoot, path);
+        await mkdir(join(abs, '..'), { recursive: true });
+        await writeFile(abs, content, 'utf8');
+        debug('harness-tool', `write_file ${path} (${Buffer.byteLength(content)} bytes)`);
+        return { path, bytes: Buffer.byteLength(content) };
+      } catch (err) {
+        return { path, bytes: 0, error: `write_file: ${err instanceof Error ? err.message : String(err)}` };
+      }
     },
   });
 
   const editFileTool = createTool({
     id: 'edit_file',
     description:
-      'Apply exact-text replacements to a file. Each edit must match a unique, non-overlapping region of the current file content. Prefer this over write_file for targeted changes. Each edit needs the text to find and its replacement; the canonical keys are `oldText`/`newText`, but `old`/`new` and `old_str`/`new_str` are also accepted.',
+      'Apply exact-text replacements to a file. Each edit must match a unique, non-overlapping region of the current file content. Prefer edit_file over write_file for targeted changes. Each edit needs the text to find and its replacement; the canonical keys are `oldText`/`newText`, but `old`/`new`, `old_str`/`new_str`, and `find`/`replace` are also accepted.',
     inputSchema: z.object({
-      path: z.string().describe('Repo-relative path to the file.'),
+      path: z.string().optional().describe('Repo-relative path to the file.'),
       edits: z
         .array(
-          // Models sometimes emit `old`/`new` or `old_str`/`new_str` instead of
-          // `oldText`/`newText`; normalize before the strict schema validates.
+          // Models sometimes emit `old`/`new`, `old_str`/`new_str`, or
+          // `find`/`replace` instead of `oldText`/`newText`; normalize before
+          // the schema validates so those calls parse.
           z.preprocess(
             (v) => {
               if (v && typeof v === 'object') {
                 const o = v as Record<string, unknown>;
                 return {
-                  oldText: o.oldText ?? o.old ?? o.old_str,
-                  newText: o.newText ?? o.new ?? o.new_str,
+                  oldText: o.oldText ?? o.old ?? o.old_str ?? o.find,
+                  newText: o.newText ?? o.new ?? o.new_str ?? o.replace,
                 };
               }
               return v;
             },
             z.object({
-              oldText: z.string().describe('Exact text to find.'),
-              newText: z.string().describe('Replacement text.'),
+              oldText: z.string().optional().describe('Exact text to find.'),
+              newText: z.string().optional().describe('Replacement text.'),
             }),
           ),
         )
-        .min(1),
+        .optional(),
     }),
     execute: async (input) => {
-      const abs = jailPath(repoRoot, input.path);
-      let content = await readFile(abs, 'utf8');
+      const path = input.path;
+      if (!path || !path.trim()) {
+        return { path: path ?? '', appliedEdits: 0, error: 'edit_file: "path" is required' };
+      }
       // input.edits is typed as unknown[] (preprocess input); normalize aliases
-      // here too so direct callers (and any path that skips schema parsing)
-      // work the same as model tool-calls.
+      // here too so direct callers work the same as model tool-calls.
       const rawEdits = (input.edits ?? []) as Array<Record<string, string | undefined>>;
       const edits = rawEdits.map((e) => ({
-        oldText: e.oldText ?? e.old ?? e.old_str ?? '',
-        newText: e.newText ?? e.new ?? e.new_str ?? '',
+        oldText: e.oldText ?? e.old ?? e.old_str ?? e.find,
+        newText: e.newText ?? e.new ?? e.new_str ?? e.replace,
       }));
-      for (const e of edits) {
-        const idx = content.indexOf(e.oldText);
-        if (idx === -1) {
-          throw new Error(`edit_file: oldText not found in ${input.path}`);
-        }
-        const after = content.slice(idx + e.oldText.length);
-        content = content.slice(0, idx) + e.newText + after;
+      if (edits.length === 0) {
+        return { path, appliedEdits: 0, error: 'edit_file: "edits" is required' };
       }
-      await writeFile(abs, content, 'utf8');
-      debug('harness-tool', `edit_file ${input.path} (${edits.length} edits)`);
-      return { path: input.path, appliedEdits: edits.length };
+      try {
+        const abs = jailPath(repoRoot, path);
+        let content = await readFile(abs, 'utf8');
+        for (const e of edits) {
+          if (e.oldText === undefined || e.newText === undefined) {
+            return {
+              path,
+              appliedEdits: 0,
+              error:
+                'edit_file: each edit needs "oldText" and "newText" (aliases "old"/"new", "old_str"/"new_str", or "find"/"replace" are accepted)',
+            };
+          }
+          const idx = content.indexOf(e.oldText);
+          if (idx === -1) {
+            return { path, appliedEdits: 0, error: `edit_file: oldText not found in ${path}` };
+          }
+          const after = content.slice(idx + e.oldText.length);
+          content = content.slice(0, idx) + e.newText + after;
+        }
+        await writeFile(abs, content, 'utf8');
+        debug('harness-tool', `edit_file ${path} (${edits.length} edits)`);
+        return { path, appliedEdits: edits.length };
+      } catch (err) {
+        return { path, appliedEdits: 0, error: `edit_file: ${err instanceof Error ? err.message : String(err)}` };
+      }
     },
   });
 
@@ -199,10 +251,14 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
     description:
       'List repo-relative file paths matching a glob pattern (supports **, *, ?). Ignores node_modules and .git.',
     inputSchema: z.object({
-      pattern: z.string().describe('Glob pattern, e.g. "src/**/*.ts".'),
+      pattern: z.string().optional().describe('Glob pattern, e.g. "src/**/*.ts".'),
     }),
     execute: async (input) => {
-      const regex = globToRegex(input.pattern);
+      const pattern = input.pattern;
+      if (!pattern || !pattern.trim()) {
+        return { matches: [], error: 'glob: "pattern" is required' };
+      }
+      const regex = globToRegex(pattern);
       const files: string[] = [];
       await walk(repoRoot, files);
       const matches = files
@@ -218,19 +274,35 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
     description:
       'Search file contents under the repo root for a pattern (JavaScript RegExp string). Returns matching lines with file:line.',
     inputSchema: z.object({
-      pattern: z.string().describe('RegExp source, e.g. "function\\\\s+foo".'),
+      pattern: z.string().optional().describe('RegExp source, e.g. "function\\\\s+foo".'),
       path: z.string().optional().describe('Optional repo-relative dir/file to scope.'),
       maxResults: z.number().int().min(1).max(500).optional(),
     }),
     execute: async (input) => {
+      const pattern = input.pattern;
+      if (!pattern || !pattern.trim()) {
+        return { hits: [], error: 'grep: "pattern" is required' };
+      }
       let regex: RegExp;
       try {
-        regex = new RegExp(input.pattern);
+        regex = new RegExp(pattern);
       } catch (err) {
-        throw new Error(`grep: invalid pattern: ${err instanceof Error ? err.message : String(err)}`);
+        return {
+          hits: [],
+          error: `grep: invalid pattern: ${err instanceof Error ? err.message : String(err)}`,
+        };
       }
       const cap = input.maxResults ?? 100;
-      const root = input.path ? jailPath(repoRoot, input.path) : repoRoot;
+      let root: string;
+      if (input.path) {
+        try {
+          root = jailPath(repoRoot, input.path);
+        } catch (err) {
+          return { hits: [], error: err instanceof Error ? err.message : String(err) };
+        }
+      } else {
+        root = repoRoot;
+      }
       const files: string[] = [];
       if (input.path) {
         const s = await stat(root).catch(() => null);
@@ -261,24 +333,28 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
     description:
       'Run a shell command inside the repo root. Destructive/git-push/sudo commands are refused. Use for builds, linters, tests, and read-only git queries. Returns stdout, stderr, and exitCode; a non-zero exitCode is NOT an error — inspect it and the output to diagnose build/test failures.',
     inputSchema: z.object({
-      command: z.string().describe('Command line to execute.'),
+      command: z.string().optional().describe('Command line to execute.'),
     }),
     execute: async (input) => {
+      const command = input.command;
+      if (!command || !command.trim()) {
+        return { stdout: '', stderr: 'shell: "command" is required', exitCode: -1 };
+      }
       for (const deny of SHELL_DENYLIST) {
-        if (deny.test(input.command)) {
-          throw new Error(`shell: refused (matches denylist): ${input.command}`);
+        if (deny.test(command)) {
+          return { stdout: '', stderr: `shell: refused (matches denylist): ${command}`, exitCode: -1 };
         }
       }
-      debug('harness-tool', `shell: ${input.command}`);
+      debug('harness-tool', `shell: ${command}`);
       // A non-zero exit (failing tests/build, missing script) is expected for a
       // coding agent — surface stdout/stderr/exitCode so it can diagnose and
       // fix, instead of aborting the turn. Timeouts and spawn errors are also
-      // surfaced (with a note) rather than thrown; only the denylist throws.
+      // surfaced (with a note) rather than thrown.
       let stdout = '';
       let stderr = '';
       let exitCode = 0;
       try {
-        const res = await execFn(input.command, {
+        const res = await execFn(command, {
           cwd: repoRoot,
           timeout: opts.toolTimeoutMs,
           maxBuffer: 1024 * 1024 * 4,
@@ -305,7 +381,7 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
           // Spawn/parse error (e.g. ENOENT). Give the agent a clue.
           exitCode = -1;
           if (!stdout && !stderr) {
-            stderr = `shell: failed to run '${input.command}': ${e.message ?? String(err)}`;
+            stderr = `shell: failed to run '${command}': ${e.message ?? String(err)}`;
           }
         }
       }

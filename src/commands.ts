@@ -31,6 +31,11 @@ export const COMMANDS: CommandSpec[] = [
     description: 'show the current/last harness run state',
   },
   {
+    name: '/log',
+    args: '',
+    description: 'show the debug log file path and recent entries',
+  },
+  {
     name: '/help',
     args: '',
     description: 'show this help',

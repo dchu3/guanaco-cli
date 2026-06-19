@@ -25,6 +25,32 @@ function stubAgent(role: SdlcRole, script: string[] | ((call: number) => string)
   };
 }
 
+/** A stub agent that hangs mid-stream until its abortSignal fires, then throws
+ * an AbortError — mirroring how a real stalled/slow LLM stream behaves. */
+function hangUntilAbort(role: SdlcRole): AgentLike {
+  return {
+    id: role,
+    stream: async (_prompt, options) => {
+      const sig = (options as { abortSignal?: AbortSignal } | undefined)?.abortSignal;
+      if (sig?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
+      async function* gen(): AsyncGenerator<string> {
+        if (!sig) {
+          yield '';
+          return;
+        }
+        await new Promise<void>((_resolve, reject) => {
+          sig.addEventListener(
+            'abort',
+            () => reject(new DOMException('The operation was aborted.', 'AbortError')),
+            { once: true },
+          );
+        });
+      }
+      return { textStream: gen(), text: Promise.resolve('') };
+    },
+  };
+}
+
 function makeAgents(overrides: Partial<Record<SdlcRole, string[] | ((c: number) => string)>> = {}): SdlcAgents {
   const defaults: Record<SdlcRole, string[]> = {
     orchestrator: ['PLAN'],
@@ -261,5 +287,38 @@ describe('HarnessRunner', () => {
     expect(res.endReason).toBe('completed-no-commit');
     expect(res.branch).toBeUndefined();
     expect(cmds.some((c) => c.startsWith('git commit'))).toBe(false);
+  });
+
+  it('ends with reason "aborted" when the run is aborted by the user (Esc)', async () => {
+    const agents = makeAgents();
+    agents.orchestrator = hangUntilAbort('orchestrator');
+    const { git } = makeFakeGit();
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({ autoCommit: false, humanInLoopIntake: false }),
+      git,
+      hooks: noSuspendHooks,
+    });
+    const controller = new AbortController();
+    controller.abort('user'); // abort before the turn starts
+    const res = await runner.run('feature', controller.signal);
+    expect(res.ok).toBe(false);
+    expect(res.endReason).toBe('aborted');
+    expect(res.log).toHaveLength(0); // no agent turn completed
+  });
+
+  it('ends with reason "timeout" when an agent turn stalls past the timeout', async () => {
+    const agents = makeAgents();
+    agents.orchestrator = hangUntilAbort('orchestrator');
+    const { git } = makeFakeGit();
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({ autoCommit: false, humanInLoopIntake: false, agentTurnTimeoutMs: 50 }),
+      git,
+      hooks: noSuspendHooks,
+    });
+    const res = await runner.run('feature');
+    expect(res.ok).toBe(false);
+    expect(res.endReason).toBe('timeout');
   });
 });

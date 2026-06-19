@@ -27,6 +27,9 @@ export interface HarnessConfig {
   humanInLoopIntake: boolean;
   /** Per shell-tool-call timeout (ms). */
   toolTimeoutMs: number;
+  /** Per agent-turn timeout (ms); 0 disables. Guards against stalled LLM
+   *  streams that would otherwise hang a harness phase (e.g. intake). */
+  agentTurnTimeoutMs?: number;
   /** Repo root the harness is allowed to operate inside. */
   repoRoot: string;
   /** When true, the harness may run `git commit` itself after human approval. */
@@ -176,6 +179,7 @@ export function loadConfig(): AppConfig {
     humanInLoopFinalize: !autoCommit,
     humanInLoopIntake: boolEnv('HARNESS_HUMAN_IN_LOOP_INTAKE', true),
     toolTimeoutMs: intEnv('HARNESS_TOOL_TIMEOUT_MS', 120_000, { min: 1000 }),
+    agentTurnTimeoutMs: intEnv('HARNESS_AGENT_TIMEOUT_MS', 300_000, { min: 0 }),
     repoRoot: process.env.HARNESS_REPO_ROOT?.trim() || process.cwd(),
     autoCommit,
   };

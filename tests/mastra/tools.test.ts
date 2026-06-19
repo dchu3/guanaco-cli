@@ -33,11 +33,11 @@ describe('buildSdlcTools', () => {
     expect(out.content).toContain('export const foo = 1');
   });
 
-  it('read_file refuses paths outside the repo root', async () => {
+  it('read_file refuses paths outside the repo root (returns an error result)', async () => {
     const t = tools().tools.read_file;
-    await expect(t.execute({ path: '../../etc/passwd' }, {} as never)).rejects.toThrow(
-      /outside the repo root/,
-    );
+    const out = await t.execute({ path: '../../etc/passwd' }, {} as never);
+    expect(out.content).toBe('');
+    expect(out.error).toMatch(/outside the repo root/);
   });
 
   it('write_file creates parent dirs and overwrites', async () => {
@@ -60,11 +60,38 @@ describe('buildSdlcTools', () => {
     expect(r.content).toContain('foo = 42');
   });
 
-  it('edit_file throws when oldText is missing', async () => {
+  it('edit_file returns an error result when oldText is missing', async () => {
     const t = tools().tools.edit_file;
-    await expect(
-      t.execute({ path: 'src/a.ts', edits: [{ oldText: 'nope', newText: 'x' }] }, {} as never),
-    ).rejects.toThrow(/oldText not found/);
+    const out = await t.execute({ path: 'src/a.ts', edits: [{ oldText: 'nope', newText: 'x' }] }, {} as never);
+    expect(out.appliedEdits).toBe(0);
+    expect(out.error).toMatch(/oldText not found/);
+  });
+
+  it('edit_file accepts old/new and find/replace aliases for oldText/newText', async () => {
+    // Some models emit {"new":...,"old":...} instead of newText/oldText.
+    const ts = tools();
+    const byOldNew = await ts.tools.edit_file.execute(
+      { path: 'src/a.ts', edits: [{ old: 'foo = 1', new: 'foo = 7' }] },
+      {} as never,
+    );
+    expect(byOldNew.appliedEdits).toBe(1);
+    const afterOldNew = await ts.tools.read_file.execute({ path: 'src/a.ts' }, {} as never);
+    expect(afterOldNew.content).toContain('foo = 7');
+
+    const byFindReplace = await ts.tools.edit_file.execute(
+      { path: 'src/a.ts', edits: [{ find: 'foo = 7', replace: 'foo = 9' }] },
+      {} as never,
+    );
+    expect(byFindReplace.appliedEdits).toBe(1);
+    const afterFR = await ts.tools.read_file.execute({ path: 'src/a.ts' }, {} as never);
+    expect(afterFR.content).toContain('foo = 9');
+  });
+
+  it('edit_file returns a clear error when an edit is missing both old and new', async () => {
+    const t = tools().tools.edit_file;
+    const out = await t.execute({ path: 'src/a.ts', edits: [{ old: 'foo = 9' }] }, {} as never);
+    expect(out.appliedEdits).toBe(0);
+    expect(out.error).toMatch(/oldText.*newText|newText.*oldText/);
   });
 
   it('edit_file accepts old/new (and old_str/new_str) aliases for oldText/newText', async () => {
@@ -123,12 +150,56 @@ describe('buildSdlcTools', () => {
     expect(out.stderr.length + out.stdout.length).toBeGreaterThan(0);
   });
 
-  it('shell refuses denylisted commands', async () => {
-    const t = tools().tools.shell;
-    await expect(t.execute({ command: 'git push origin main' }, {} as never)).rejects.toThrow(
-      /refused/,
+  it('shell returns failure output instead of throwing on a non-zero exit', async () => {
+    // A failing command (e.g. `npm test` with failing tests) must come back as
+    // a tool result the agent can read and react to — not throw and disrupt the
+    // stream with a Mastra "Error executing tool".
+    const out = await tools().tools.shell.execute(
+      { command: 'sh -c "echo boom 1>&2; exit 7"' },
+      {} as never,
     );
-    await expect(t.execute({ command: 'rm -rf /' }, {} as never)).rejects.toThrow(/refused/);
+    expect(out.exitCode).toBe(7);
+    expect(out.stderr).toContain('boom');
+  });
+
+  it('shell refuses denylisted commands (returns an error result)', async () => {
+    const t = tools().tools.shell;
+    const a = await t.execute({ command: 'git push origin main' }, {} as never);
+    expect(a.exitCode).not.toBe(0);
+    expect(a.stderr).toMatch(/refused/);
+    const b = await t.execute({ command: 'rm -rf /' }, {} as never);
+    expect(b.exitCode).not.toBe(0);
+    expect(b.stderr).toMatch(/refused/);
+  });
+
+  it('tools return an error result (not throw) when called with empty args {}', async () => {
+    // Regression: a model tool call with empty/missing args must parse and
+    // return a clear error to the agent, instead of throwing
+    // AI_InvalidToolArgumentsError and crashing the stream.
+    const ts = tools();
+    const grep = await ts.tools.grep.execute({} as never, {} as never);
+    expect(grep.hits).toEqual([]);
+    expect(grep.error).toMatch(/pattern/);
+
+    const glob = await ts.tools.glob.execute({} as never, {} as never);
+    expect(glob.matches).toEqual([]);
+    expect(glob.error).toMatch(/pattern/);
+
+    const shell = await ts.tools.shell.execute({} as never, {} as never);
+    expect(shell.exitCode).not.toBe(0);
+    expect(shell.stderr).toMatch(/command/);
+
+    const read = await ts.tools.read_file.execute({} as never, {} as never);
+    expect(read.content).toBe('');
+    expect(read.error).toMatch(/path/);
+
+    const write = await ts.tools.write_file.execute({} as never, {} as never);
+    expect(write.bytes).toBe(0);
+    expect(write.error).toMatch(/path/);
+
+    const edit = await ts.tools.edit_file.execute({} as never, {} as never);
+    expect(edit.appliedEdits).toBe(0);
+    expect(edit.error).toMatch(/path|edits/);
   });
 
   it('subset returns only the requested tool ids', () => {

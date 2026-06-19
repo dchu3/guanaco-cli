@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Container, Markdown, Text, Spacer, type MarkdownTheme } from '@earendil-works/pi-tui';
-import { trimChatToFit, fixedHeight, totalHeight, type ChatRegions } from '../../src/ui/layout.js';
+import { layoutToFit, fixedHeight, totalHeight, type ChatRegions } from '../../src/ui/layout.js';
 
 // Plain markdown theme (identity styling) so render heights reflect the
 // raw text length / wrapping without ANSI color codes.
@@ -30,13 +30,15 @@ function buildRegions(): ChatRegions {
 
   const chat = new Container();
   const status = new Container();
+  const filler = new Spacer(1);
   const editor = new Container();
+  const footer = new Container();
   // Simulate the editor's two border rules + one content line.
   editor.addChild(new Text('────────────────', 1, 0));
   editor.addChild(new Text('  [editor]', 1, 0));
   editor.addChild(new Text('────────────────', 1, 0));
 
-  return { header, chat, status, editor };
+  return { header, chat, status, filler, editor, footer };
 }
 
 /** Add a chat message block (Spacer + Markdown), mirroring cli.addMessage. */
@@ -47,15 +49,15 @@ function addMessage(regions: ChatRegions, content: string): Markdown {
   return msg;
 }
 
-describe('trimChatToFit', () => {
+describe('layoutToFit', () => {
   it('is a no-op when the terminal size is unknown (rows<=0 or columns<=0)', () => {
     const r = buildRegions();
     addMessage(r, 'hello');
     addMessage(r, 'world');
     const before = r.chat.children.length;
-    trimChatToFit(r, { columns: 80, rows: 0 });
-    trimChatToFit(r, { columns: 0, rows: 24 });
-    trimChatToFit(r, { columns: -1, rows: 24 });
+    layoutToFit(r, { columns: 80, rows: 0 });
+    layoutToFit(r, { columns: 0, rows: 24 });
+    layoutToFit(r, { columns: -1, rows: 24 });
     expect(r.chat.children.length).toBe(before);
   });
 
@@ -66,7 +68,7 @@ describe('trimChatToFit', () => {
     // header=4, editor=3, spacer=1, status=0 → fixed=8, budget=2.
     // Each message block is Spacer(1) + 1 line = 2 lines, so only one fits.
     for (let i = 0; i < 6; i++) addMessage(r, `message ${i}`);
-    trimChatToFit(r, { columns: cols, rows });
+    layoutToFit(r, { columns: cols, rows });
 
     expect(totalHeight(r, cols)).toBeLessThanOrEqual(rows);
     // Header is fully preserved.
@@ -82,7 +84,7 @@ describe('trimChatToFit', () => {
     const rows = 6; // fixed=8 > rows → budget = max(0, 6-8) = 0 < 2
     for (let i = 0; i < 3; i++) addMessage(r, `m${i}`);
     const before = r.chat.children.length;
-    trimChatToFit(r, { columns: cols, rows });
+    layoutToFit(r, { columns: cols, rows });
     // No trim (and therefore no chat shift) — shifting chat above the viewport
     // would trigger a pi-tui full-screen clear, which is what we avoid here.
     expect(r.chat.children.length).toBe(before);
@@ -94,7 +96,7 @@ describe('trimChatToFit', () => {
     const rows = 11; // fixed without status = 8, budget=3 → one block(2) fits, two(4) don't
     for (let i = 0; i < 5; i++) addMessage(r, `m${i}`);
     r.status.addChild(new Text('  Thinking...', 1, 0)); // status now 1 line → fixed=9, budget=2
-    trimChatToFit(r, { columns: cols, rows });
+    layoutToFit(r, { columns: cols, rows });
     expect(totalHeight(r, cols)).toBeLessThanOrEqual(rows);
   });
 
@@ -104,7 +106,7 @@ describe('trimChatToFit', () => {
     const rows = 12;
     for (let i = 0; i < 50; i++) {
       addMessage(r, `message number ${i}`);
-      trimChatToFit(r, { columns: cols, rows });
+      layoutToFit(r, { columns: cols, rows });
       // Invariant: total fits in one screen (header always visible).
       expect(totalHeight(r, cols)).toBeLessThanOrEqual(rows);
     }
@@ -120,7 +122,7 @@ describe('trimChatToFit', () => {
     const rows = 12; // fixed=8, budget=4
     addMessage(r, 'a'.repeat(60)); // older, wraps to several lines at width 20
     addMessage(r, 'short'); // latest, block = Spacer + 1 line = 2
-    trimChatToFit(r, { columns: cols, rows });
+    layoutToFit(r, { columns: cols, rows });
     // The oversized older block is dropped; the latest (short) fits.
     expect(totalHeight(r, cols)).toBeLessThanOrEqual(rows);
     expect(r.chat.children.length).toBe(2); // Spacer + short
@@ -135,7 +137,7 @@ describe('trimChatToFit', () => {
     addMessage(r, 'short'); // older, block 2
     addMessage(r, 'a'.repeat(60)); // latest, wraps to ~4 lines → block ~5 > budget
     const before = r.chat.children.length; // 4
-    trimChatToFit(r, { columns: cols, rows });
+    layoutToFit(r, { columns: cols, rows });
     // Trimming can't make it fit (the latest alone overflows) → revert, so chat
     // is not shifted (avoids a pi-tui full-screen clear). Overflow is accepted.
     expect(r.chat.children.length).toBe(before);
@@ -150,5 +152,50 @@ describe('trimChatToFit', () => {
     const total = totalHeight(r, cols);
     // chat = Spacer(1) + message(1) = 2
     expect(total).toBe(fixed + 2);
+  });
+
+  it('pins the editor at the bottom by filling the gap when chat is short', () => {
+    const r = buildRegions();
+    const cols = 80;
+    const rows = 30; // lots of room — chat is far shorter than the screen
+    addMessage(r, 'hello'); // chat = Spacer + 1 line = 2
+    layoutToFit(r, { columns: cols, rows });
+
+    // The filler absorbed the leftover space so the whole layout fills the screen.
+    expect(totalHeight(r, cols)).toBe(rows);
+    // The filler is what grew (everything else is at its natural height).
+    const natural =
+      r.header.render(cols).length +
+      r.chat.render(cols).length +
+      r.status.render(cols).length +
+      r.editor.render(cols).length +
+      r.footer.render(cols).length;
+    expect(r.filler.render(cols).length).toBe(rows - natural);
+    // The editor is the last region before the footer, i.e. its content sits at
+    // the bottom of the buffer (not floating mid-screen).
+    const lines = [
+      ...r.header.render(cols),
+      ...r.chat.render(cols),
+      ...r.status.render(cols),
+      ...r.filler.render(cols),
+      ...r.editor.render(cols),
+      ...r.footer.render(cols),
+    ];
+    expect(lines.length).toBe(rows);
+    expect(lines[lines.length - 1 - r.footer.render(cols).length - 1]).toContain('[editor]');
+  });
+
+  it('shrinks the filler to the minimum gap when chat overflows the screen', () => {
+    const r = buildRegions();
+    const cols = 80;
+    const rows = 12; // header=4, editor=3, footer=0, status=0, MIN_GAP=1 → fixed=8, budget=4
+    for (let i = 0; i < 6; i++) addMessage(r, `message ${i}`); // overflows budget
+    layoutToFit(r, { columns: cols, rows });
+
+    // Filler collapses to the minimum gap; layout still totals exactly `rows`.
+    expect(r.filler.render(cols).length).toBe(1);
+    expect(totalHeight(r, cols)).toBe(rows);
+    // Header still pinned at the top.
+    expect(r.header.render(cols).length).toBe(4);
   });
 });

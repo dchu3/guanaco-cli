@@ -7,10 +7,12 @@ export type { SdlcRole };
 
 /**
  * The minimal surface the harness runner needs from an agent. Real Mastra
- * `Agent` instances are wrapped (see `createSdlcAgents`) so that `stream()`
- * routes to either `Agent#stream()` (AI SDK v5 models) or `Agent#streamLegacy()`
- * (AI SDK v4 models like `ollama-ai-provider`), both of which expose the
- * `{ textStream, text }` this interface requires. Tests can provide lightweight
+ * `Agent` instances are wrapped (see `createSdlcAgents`) so `stream()` routes
+ * to the right Mastra streaming path — `Agent#stream()` for AI SDK v5+ models,
+ * `Agent#streamLegacy()` for v4 models (e.g. the local `ollama-ai-provider`
+ * and `ollama-cloud/*` models that report as v4). Routing is deterministic via
+ * `isV4Model` for v1 models, with a try/catch fallback to `streamLegacy()`
+ * when a cloud model reports v4 only at call time. Tests can provide lightweight
  * stubs that implement only `stream()`.
  */
 export interface AgentLike {
@@ -52,11 +54,30 @@ export function isV4Model(model: unknown): boolean {
  */
 export function routeAgentStream(agent: AgentStreamMethods, model: unknown): AgentLike['stream'] {
   const useLegacy = isV4Model(model);
-  return (messages, options) => {
-    const result = useLegacy
-      ? agent.streamLegacy(messages, options)
-      : agent.stream(messages, options);
-    return result as Promise<AgentStreamLike>;
+  return async (messages, options) => {
+    if (useLegacy) {
+      return agent.streamLegacy(messages, options) as Promise<AgentStreamLike>;
+    }
+    // v5/cloud: try stream() first. Some ollama-cloud models report as AI SDK
+    // v4 only at call time (the router config has no `specificationVersion`, so
+    // `isV4Model` can't pre-detect them) and Mastra rejects them from stream()
+    // with "AI SDK v4 model … not compatible with stream()". Fall back to
+    // streamLegacy() then; an AbortError (Esc) propagates as-is.
+    try {
+      return await (agent.stream(messages, options) as Promise<AgentStreamLike>);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/not compatible with stream|AI SDK v4/i.test(msg)) throw err;
+      try {
+        return await (agent.streamLegacy(messages, options) as Promise<AgentStreamLike>);
+      } catch (legacyErr) {
+        const lmsg = legacyErr instanceof Error ? legacyErr.message : String(legacyErr);
+        if (legacyErr instanceof Error && (legacyErr.name === 'AbortError' || /abort/i.test(lmsg))) {
+          throw legacyErr;
+        }
+        throw new Error(`model is incompatible with both stream() and streamLegacy(): ${lmsg}`);
+      }
+    }
   };
 }
 
@@ -74,9 +95,10 @@ export const ROLE_TOOLS: Record<SdlcRole, (keyof SdlcToolRecord)[]> = {
 const SHARED_PREAMBLE = `You are part of an automated software-development harness operating inside a git repository.
 Hard rules:
 - Work only inside the repo root. Never touch files outside it.
-- Prefer edit_file over write_file for targeted changes.
+- Prefer edit_file over write_file for targeted changes. edit_file edits use the keys "oldText" and "newText" ("old"/"new" and "find"/"replace" are accepted as aliases).
 - Do not run git commit, git push, sudo, or any destructive shell command — the harness handles git commits after human approval.
 - When you must run a build/test, use the shell tool.
+- Formatting: ALWAYS put shell commands, code, and file contents in fenced code blocks (e.g. \`\`\`bash) on their OWN lines, separated by a blank line from prose. Never run a command or code inline with a sentence.
 - Stay within your role. Hand off to the next stage by producing your role's output contract, never by free-form chatting.`;
 
 export const AGENT_INSTRUCTIONS: Record<SdlcRole, string> = {

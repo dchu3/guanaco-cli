@@ -5,8 +5,29 @@ import { buildToolRegistry } from './tools.js';
 import { buildSdlcAgentsFromConfig } from './mastra/index.js';
 import { GitOps } from './harness/git.js';
 import { getVersion, wantsVersion } from './version.js';
+import { captureStderr, getLogFile, logError, logInfo, logPathIsInside } from './util/log.js';
+
+/** Persist any error that escapes the normal control flow so it isn't lost to
+ * the TUI's synchronized rendering (which overwrites console output). */
+function installGlobalErrorCapture(): void {
+  process.on('uncaughtException', (err) => {
+    logError('uncaughtException', err);
+    // eslint-disable-next-line no-console
+    console.error('uncaughtException:', err);
+  });
+  process.on('unhandledRejection', (reason) => {
+    logError('unhandledRejection', reason);
+    // eslint-disable-next-line no-console
+    console.error('unhandledRejection:', reason);
+  });
+}
 
 async function main(): Promise<void> {
+  // Capture stderr + global errors FIRST, before anything can throw, so the
+  // "errors that flash and get cleared" are persisted to the debug log file.
+  captureStderr();
+  installGlobalErrorCapture();
+
   const argv = process.argv.slice(2);
   // Fast-path: print version and exit before constructing Ollama/Mastra so
   // `guanaco --version` works from any folder without a running Ollama.
@@ -39,6 +60,18 @@ async function main(): Promise<void> {
   console.log(
     `guanaco-cli · model=${cfg.ollamaModel} · ollama=${cfg.ollamaBaseUrl} · harness=${cfg.harness.provider}`,
   );
+  const logFile = getLogFile();
+  if (logFile) {
+    // eslint-disable-next-line no-console
+    console.log(`debug log: ${logFile}  (view in-app with /log)`);
+    if (logPathIsInside()) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `warning: GUANACO_LOG_FILE resolves inside the current repo — log entries may be committed. Use an absolute path outside the repo (or unset GUANACO_LOG_FILE for the default ~/.guanaco/logs/debug.log).`,
+      );
+    }
+    logInfo('startup', `guanaco-cli model=${cfg.ollamaModel} harness=${cfg.harness.provider}`);
+  }
 
   const shutdown = (signal: string) => () => {
     // eslint-disable-next-line no-console
@@ -60,6 +93,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
+  logError('main', err);
   // eslint-disable-next-line no-console
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
