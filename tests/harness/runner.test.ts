@@ -65,6 +65,20 @@ function stubAgentThrowsNoSuchTool(role: SdlcRole, toolName: string): AgentLike 
   };
 }
 
+/** Build a stub agent whose stream() throws a Mastra/AI SDK InvalidToolArgumentsError. */
+function stubAgentThrowsInvalidToolArgs(role: SdlcRole, toolName: string): AgentLike {
+  return {
+    id: role,
+    stream: async () => {
+      const err = new Error(
+        `InvalidToolArgumentsError [AI_InvalidToolArgumentsError]: Invalid arguments for tool ${toolName}: Type validation failed. Expected array, received string.`,
+      );
+      err.name = 'AI_InvalidToolArgumentsError';
+      throw err;
+    },
+  };
+}
+
 function makeAgents(overrides: Partial<Record<SdlcRole, string[] | ((c: number) => string)>> = {}): SdlcAgents {
   const defaults: Record<SdlcRole, string[]> = {
     orchestrator: ['PLAN'],
@@ -150,6 +164,27 @@ describe('HarnessRunner', () => {
     expect(res.endReason).toBe('tool-error');
     expect(res.summary).toMatch(/unavailable tool/i);
     expect(infos.some((t) => /reviewer tried to call unavailable tool 'shell'/i.test(t))).toBe(true);
+  });
+
+  it('ends with reason "tool-error" when a model sends invalid tool arguments', async () => {
+    const agents = makeAgents();
+    agents.coder = stubAgentThrowsInvalidToolArgs('coder', 'edit_file');
+    const { git } = makeFakeGit();
+    const infos: string[] = [];
+    const hooks: HarnessHooks = {
+      onSuspend: async () => 'no',
+      onInfo: (t) => void infos.push(t),
+    };
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({ autoCommit: false, humanInLoopIntake: false }),
+      git,
+      hooks,
+    });
+    const res = await runner.run('feature');
+    expect(res.ok).toBe(false);
+    expect(res.endReason).toBe('tool-error');
+    expect(infos.some((t) => /coder sent invalid arguments to tool 'edit_file'/i.test(t))).toBe(true);
   });
 
   it('runs the happy path and commits when autoCommit is true', async () => {
