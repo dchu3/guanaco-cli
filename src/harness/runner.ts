@@ -78,13 +78,22 @@ export class HarnessRunner {
   /** Drive one agent turn: stream, render deltas, record the final text.
    *
    *  `this.abortSignal` (set by `run`) propagates to the agent stream so Esc
-   *  can stop the flow mid-turn. A per-turn timeout (cfg.agentTurnTimeoutMs)
-   *  aborts stalled LLM streams — the lack of any timeout on the Mastra agent
-   *  path was why intake appeared to hang on a slow/stalled model. */
+   *  can stop the flow mid-turn. A per-turn *inactivity* timeout
+   *  (cfg.agentTurnTimeoutMs) aborts stalled LLM streams — the timer resets on
+   *  every streamed token, so a slow-but-productive turn is not killed just
+   *  for being long. An optional hard wall-clock cap
+   *  (cfg.agentTurnHardTimeoutMs) bounds runaway turns and is never reset.
+   *
+   *  When `recoverOnTimeout` is true (the implement/review/test work loops),
+   *  a timeout does NOT end the run: we keep whatever text streamed so far,
+   *  warn via `onInfo`, and return it so the loop can treat the turn as a
+   *  failed attempt and continue. Planning steps pass `false` (default) so a
+   *  timed-out plan/design/summary still aborts the run. */
   private async callAgent(
     role: SdlcRole,
     step: HarnessStep,
     prompt: string,
+    recoverOnTimeout = false,
   ): Promise<string> {
     this.state.step = step;
     await this.step('start');
@@ -96,7 +105,8 @@ export class HarnessRunner {
     const abortSignal = this.abortSignal;
     const turnController = new AbortController();
     let abortReason: 'user' | 'timeout' | undefined;
-    let timer: NodeJS.Timeout | undefined;
+    let inactivityTimer: NodeJS.Timeout | undefined;
+    let hardTimer: NodeJS.Timeout | undefined;
     if (abortSignal) {
       if (abortSignal.aborted) {
         abortReason = 'user';
@@ -112,19 +122,37 @@ export class HarnessRunner {
         );
       }
     }
-    const timeoutMs = this.cfg.agentTurnTimeoutMs ?? 0;
-    if (timeoutMs > 0) {
-      timer = setTimeout(() => {
+    const inactivityMs = this.cfg.agentTurnTimeoutMs ?? 0;
+    const hardMs = this.cfg.agentTurnHardTimeoutMs ?? 0;
+    const armInactivity = (): void => {
+      if (inactivityMs > 0) {
+        if (inactivityTimer) clearTimeout(inactivityTimer);
+        inactivityTimer = setTimeout(() => {
+          abortReason = 'timeout';
+          turnController.abort();
+        }, inactivityMs);
+      }
+    };
+    // Hoisted out of `try` so the catch block can recover the partial text
+    // on a (recoverable) timeout.
+    let full = '';
+    // Arm the inactivity timer before the stream starts so a model that never
+    // emits a first token is still caught.
+    armInactivity();
+    if (hardMs > 0) {
+      hardTimer = setTimeout(() => {
         abortReason = 'timeout';
         turnController.abort();
-      }, timeoutMs);
+      }, hardMs);
     }
 
     try {
       const out = await this.agents[role].stream(prompt, { ...streamOptions, abortSignal: turnController.signal });
-      let full = '';
       for await (const delta of out.textStream) {
         full += delta;
+        // A real token arrived → the stream isn't stalled; reset the
+        // inactivity window. (Hard cap is intentionally NOT reset.)
+        armInactivity();
         await this.hooks.onAgentDelta?.(role, delta, full);
       }
       const text = (await out.text) || full;
@@ -134,13 +162,33 @@ export class HarnessRunner {
       await this.step('end');
       return text;
     } catch (err) {
+      if (abortReason === 'timeout' && recoverOnTimeout) {
+        // Keep whatever streamed before the stall and let the caller's loop
+        // decide what to do (typically: treat as a failed attempt, retry the
+        // next cycle, or proceed to finalize with the work done so far).
+        return this.recoverFromTimeout(role, step, full);
+      }
       if (abortReason !== undefined) {
         throw new HarnessAbortError(abortReason);
       }
       throw err;
     } finally {
-      if (timer) clearTimeout(timer);
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      if (hardTimer) clearTimeout(hardTimer);
     }
+  }
+
+  /** Called when a recoverable agent turn times out: surface a warning, log
+   *  the partial text (if any) so it isn't lost, and return it for the caller
+   *  to feed downstream. The underlying stream error is swallowed. */
+  private async recoverFromTimeout(role: SdlcRole, step: HarnessStep, partial: string): Promise<string> {
+    await this.info(`${role} turn timed out (inactivity); recovering partial output and continuing.`);
+    if (partial.length > 0) {
+      const entry: HarnessLogEntry = { step, agent: role, text: partial };
+      this.state.log.push(entry);
+    }
+    await this.step('end');
+    return partial;
   }
 
   private async suspend(reason: string, prompt: string): Promise<string> {
@@ -230,6 +278,7 @@ export class HarnessRunner {
       'coder',
       'implement',
       `Feature:\n${confirmed}\n\nDesign / change set:\n${design}\n\nImplement the change set. Run the build via the shell tool and fix errors.`,
+      true,
     );
 
     // --- Review loop (reviewer ⇄ coder) ---
@@ -238,6 +287,7 @@ export class HarnessRunner {
         'reviewer',
         'review',
         `Feature:\n${confirmed}\n\nDesign:\n${design}\n\nAcceptance criteria:\n${criteria}\n\nCoder report:\n${coderText}\n\nReview the current diff (use git_diff) and produce your verdict.`,
+        true,
       );
       const verdict = parseVerdict(review, ['APPROVE'], ['CHANGES_REQUESTED']);
       if (verdict === 'positive') {
@@ -256,6 +306,7 @@ export class HarnessRunner {
         'coder',
         'implement',
         `Feature:\n${confirmed}\n\nDesign:\n${design}\n\nReviewer notes:\n${review}\n\nAddress the review notes and re-run the build.`,
+        true,
       );
     }
 
@@ -265,6 +316,7 @@ export class HarnessRunner {
         'tester',
         'test',
         `Feature:\n${confirmed}\n\nAcceptance criteria:\n${criteria}\n\nCoder report:\n${coderText}\n\nWrite/run tests (npm test) and produce your verdict.`,
+        true,
       );
       const verdict = parseVerdict(testReport, ['TESTS_PASSED'], ['TESTS_FAILED']);
       if (verdict === 'positive') {
@@ -283,6 +335,7 @@ export class HarnessRunner {
         'coder',
         'implement',
         `Feature:\n${confirmed}\n\nTest failures:\n${testReport}\n\nFix the failing tests and re-run them.`,
+        true,
       );
     }
 

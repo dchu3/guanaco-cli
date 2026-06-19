@@ -580,7 +580,10 @@ export async function startCli(deps: CliDeps): Promise<void> {
       } else if (result.endReason === 'timeout') {
         addMessage(
           'system',
-          chalk.yellow(`Harness stopped: an agent turn timed out (set HARNESS_AGENT_TIMEOUT_MS to adjust). ` + result.summary),
+          chalk.yellow(
+            `Harness stopped: a planning agent turn stalled (no tokens for HARNESS_AGENT_TIMEOUT_MS). Work-loop timeouts (coder/reviewer/tester) recover automatically; only a stalled plan/design/summary stops the run. ` +
+              result.summary,
+          ),
         );
       } else {
         const tail = [

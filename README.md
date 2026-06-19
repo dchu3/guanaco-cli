@@ -175,6 +175,8 @@ plain exported env vars from your shell profile work too.
 | `HARNESS_AUTO_COMMIT`  |          | `0`                      | `1` = commit without asking            |
 | `HARNESS_HUMAN_IN_LOOP_INTAKE` |  | `1`                      | Pause at intake to confirm the plan    |
 | `HARNESS_TOOL_TIMEOUT_MS`   |     | `120000`                 | Per `shell` tool call timeout (ms)      |
+| `HARNESS_AGENT_TIMEOUT_MS`  |     | `300000`                 | Per-turn *inactivity* timeout (ms); keep > tool timeout. 0 = off |
+| `HARNESS_AGENT_HARD_TIMEOUT_MS` |  | `0`                      | Per-turn hard wall-clock cap (ms); 0 = off |
 | `HARNESS_REPO_ROOT`    |          | `process.cwd()`           | Repo root the harness is jailed to      |
 | `OLLAMA_TEMPERATURE`   |          | `0.8`                    | Overridable via `--temperature`        |
 | `OLLAMA_TOP_P`         |          | `0.9`                    | Overridable via `--top-p`              |
