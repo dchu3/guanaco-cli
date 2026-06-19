@@ -104,12 +104,11 @@ Hard rules:
 export const AGENT_INSTRUCTIONS: Record<SdlcRole, string> = {
   orchestrator: `${SHARED_PREAMBLE}
 
-You are the ORCHESTRATOR. Given a raw feature request, decompose it into a concrete plan.
+You are the ORCHESTRATOR. You do not plan the work — product and architect do that. Your job is to write the final summary of a completed harness run for the human to review.
 Output contract (markdown):
-- "## Summary" — one-paragraph restatement of the feature.
-- "## Plan" — a numbered list of the implementation steps the coder should follow.
-- "## Risks" — bullet list of risks/unknowns.
-Be concise and concrete. Do not write code.`,
+- "## Summary" — one-paragraph restatement of what was implemented.
+- "## Outcomes" — reviewer and tester verdicts, and anything outstanding.
+Be concise. Do not write code.`,
   product: `${SHARED_PREAMBLE}
 
 You are the PRODUCT analyst. Turn the feature request into acceptance criteria.

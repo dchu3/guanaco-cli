@@ -19,6 +19,9 @@ export interface HarnessConfig {
   maxReviewCycles: number;
   /** Max times test can fail before forcing a proceed. */
   maxTestCycles: number;
+  /** Max product ⇄ architect refinement rounds during planning (0 = just
+   *  product→architect, no back-and-forth). */
+  maxPlanCycles: number;
   /** Max agentic tool-loop steps per agent turn. */
   maxAgentSteps: number;
   /** When false, the finalize step auto-commits without asking the human. */
@@ -183,6 +186,7 @@ export function loadConfig(): AppConfig {
     roleModels,
     maxReviewCycles: intEnv('HARNESS_MAX_REVIEW_CYCLES', 2, { min: 0, max: 10 }),
     maxTestCycles: intEnv('HARNESS_MAX_TEST_CYCLES', 2, { min: 0, max: 10 }),
+    maxPlanCycles: intEnv('HARNESS_MAX_PLAN_CYCLES', 0, { min: 0, max: 5 }),
     maxAgentSteps: intEnv('HARNESS_MAX_AGENT_STEPS', 8, { min: 1, max: 50 }),
     humanInLoopFinalize: !autoCommit,
     humanInLoopIntake: boolEnv('HARNESS_HUMAN_IN_LOOP_INTAKE', true),

@@ -76,6 +76,7 @@ function makeConfig(over: Partial<HarnessConfig> = {}): HarnessConfig {
     roleModels: {},
     maxReviewCycles: 2,
     maxTestCycles: 2,
+    maxPlanCycles: 0,
     maxAgentSteps: 4,
     humanInLoopFinalize: true,
     humanInLoopIntake: false,
@@ -128,9 +129,9 @@ describe('HarnessRunner', () => {
     expect(res.endReason).toBe('completed');
     expect(res.branch).toMatch(/^harness-/);
     expect(res.commit).toBe('deadbeefcafebabe1234');
-    // Seven agent turns in order.
+    // Six agent turns in order: product+architect plan, then implement/review/test,
+    // then the orchestrator summary at finalize (orchestrator no longer plans).
     expect(res.log.map((l) => `${l.step}:${l.agent}`)).toEqual([
-      'intake:orchestrator',
       'requirements:product',
       'design:architect',
       'implement:coder',
@@ -225,9 +226,11 @@ describe('HarnessRunner', () => {
     expect(res.endReason).toBe('not-a-git-repo');
   });
 
-  it('pauses at intake and folds human refinements back into a re-plan', async () => {
+  it('pauses at intake and folds human refinements back into a product/architect re-plan', async () => {
+    // product returns CRITERIA-v1 then CRITERIA-v2; architect returns DESIGN-v1 then DESIGN-v2.
     const agents = makeAgents({
-      orchestrator: ['PLAN-v1', 'PLAN-v2'],
+      product: ['CRITERIA-v1', 'CRITERIA-v2'],
+      architect: ['DESIGN-v1', 'DESIGN-v2'],
     });
     const { git } = makeFakeGit();
     let suspendCalls = 0;
@@ -244,11 +247,17 @@ describe('HarnessRunner', () => {
       hooks,
     });
     const res = await runner.run('add hello command');
-    // Two orchestrator turns at intake (initial + refined re-plan), then one at finalize.
-    const orchTurns = res.log.filter((l) => l.agent === 'orchestrator');
-    expect(orchTurns).toHaveLength(3);
-    expect(orchTurns[0].text).toBe('PLAN-v1');
-    expect(orchTurns[1].text).toBe('PLAN-v2');
+    // Initial plan (product+architect), then a re-plan after the human refines,
+    // then the orchestrator summary at finalize.
+    const productTurns = res.log.filter((l) => l.agent === 'product');
+    const archTurns = res.log.filter((l) => l.agent === 'architect');
+    expect(productTurns).toHaveLength(2);
+    expect(archTurns).toHaveLength(2);
+    expect(productTurns[0].text).toBe('CRITERIA-v1');
+    expect(productTurns[1].text).toBe('CRITERIA-v2');
+    expect(archTurns[0].text).toBe('DESIGN-v1');
+    expect(archTurns[1].text).toBe('DESIGN-v2');
+    expect(res.log.filter((l) => l.agent === 'orchestrator')).toHaveLength(1); // finalize only
     expect(res.ok).toBe(true);
     // Human approves at finalize → commits.
     expect(res.endReason).toBe('completed');
@@ -256,8 +265,8 @@ describe('HarnessRunner', () => {
     expect(suspendCalls).toBe(2);
   });
 
-  it('does not ask the human to review a plan when the orchestrator produced none', async () => {
-    const agents = makeAgents({ orchestrator: [''] });
+  it('does not ask the human to review a plan when product/architect produced none', async () => {
+    const agents = makeAgents({ product: [''], architect: [''] });
     const { git } = makeFakeGit();
     const asks: string[] = [];
     const hooks: HarnessHooks = {
@@ -275,12 +284,12 @@ describe('HarnessRunner', () => {
     const res = await runner.run('add a thing');
     expect(res.ok).toBe(true);
     expect(asks.length).toBeGreaterThan(0);
-    expect(asks[0]).not.toContain('Review the orchestrator plan above');
+    expect(asks[0]).not.toContain('Review the plan above');
     expect(asks[0]).toContain('no plan');
   });
 
-  it('asks the human to review the plan when the orchestrator produced one', async () => {
-    const agents = makeAgents(); // orchestrator returns 'PLAN'
+  it('asks the human to review the plan when product/architect produced one', async () => {
+    const agents = makeAgents(); // product 'CRITERIA', architect 'DESIGN'
     const { git } = makeFakeGit();
     const asks: string[] = [];
     const hooks: HarnessHooks = {
@@ -297,7 +306,30 @@ describe('HarnessRunner', () => {
     });
     await runner.run('add a thing');
     expect(asks.length).toBeGreaterThan(0);
-    expect(asks[0]).toContain('Review the orchestrator plan above');
+    expect(asks[0]).toContain('Review the plan above');
+  });
+
+  it('runs product ⇄ architect refinement cycles when maxPlanCycles > 0', async () => {
+    // product cycles CRIT-1 -> CRIT-2 -> CRIT-3; architect cycles DES-1 -> DES-2 -> DES-3.
+    const agents = makeAgents({
+      product: ['CRIT-1', 'CRIT-2', 'CRIT-3'],
+      architect: ['DES-1', 'DES-2', 'DES-3'],
+    });
+    const { git } = makeFakeGit();
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({ autoCommit: true, humanInLoopIntake: false, maxPlanCycles: 2 }),
+      git,
+      hooks: noSuspendHooks,
+    });
+    const res = await runner.run('add a thing');
+    // Initial plan (1 product + 1 architect) + 2 refinement rounds (2 each) = 3 each.
+    const productTurns = res.log.filter((l) => l.agent === 'product');
+    const archTurns = res.log.filter((l) => l.agent === 'architect');
+    expect(productTurns).toHaveLength(3);
+    expect(archTurns).toHaveLength(3);
+    expect(productTurns.map((l) => l.text)).toEqual(['CRIT-1', 'CRIT-2', 'CRIT-3']);
+    expect(archTurns.map((l) => l.text)).toEqual(['DES-1', 'DES-2', 'DES-3']);
   });
 
   it('commits only after human approval when autoCommit is false', async () => {
@@ -335,7 +367,7 @@ describe('HarnessRunner', () => {
 
   it('ends with reason "aborted" when the run is aborted by the user (Esc)', async () => {
     const agents = makeAgents();
-    agents.orchestrator = hangUntilAbort('orchestrator');
+    agents.product = hangUntilAbort('product');
     const { git } = makeFakeGit();
     const runner = new HarnessRunner({
       agents,
@@ -353,7 +385,7 @@ describe('HarnessRunner', () => {
 
   it('ends with reason "timeout" when an agent turn stalls past the timeout', async () => {
     const agents = makeAgents();
-    agents.orchestrator = hangUntilAbort('orchestrator');
+    agents.product = hangUntilAbort('product');
     const { git } = makeFakeGit();
     const runner = new HarnessRunner({
       agents,

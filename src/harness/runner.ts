@@ -232,50 +232,36 @@ export class HarnessRunner {
       }
     }
 
-    // --- Intake (orchestrator) ---
-    let plan = await this.callAgent(
-      'orchestrator',
-      'intake',
-      `Feature request:\n${featurePrompt}\n\nProduce the plan per your output contract.`,
-    );
+    // --- Planning (product ⇄ architect) ---
+    // The plan is built collaboratively from the feature prompt: product turns
+    // the request into acceptance criteria, architect turns those (plus the
+    // feature) into a change set. The orchestrator no longer plans at intake;
+    // it only writes the final summary. Optional refinement rounds let product
+    // and architect react to each other's output (HARNESS_MAX_PLAN_CYCLES).
+    let { criteria, design } = await this.plan(featurePrompt);
+    for (let i = 0; i < this.cfg.maxPlanCycles; i++) {
+      ({ criteria, design } = await this.refinePlan(featurePrompt, criteria, design));
+    }
 
     let confirmed = featurePrompt;
     if (this.cfg.humanInLoopIntake) {
-      // Don't tell the human to review a plan that isn't there. Keep the gate
-      // (they can still refine the feature) but phrase it honestly when the
-      // orchestrator returned empty output.
-      const hasPlan = plan.trim().length > 0;
+      // The human reviews the combined product+architect plan. Don't claim a
+      // plan is "above" when both came back empty — phrase it honestly.
+      const planText = `${criteria}\n\n${design}`;
+      const hasPlan = planText.trim().length > 0;
       const ask = hasPlan
-        ? 'Review the orchestrator plan above. Reply "ok" to proceed, or describe refinements.'
-        : 'The orchestrator produced no plan (empty output). Reply "ok" to proceed with just the feature request, or describe what you want built.';
+        ? 'Review the plan above (product criteria + architect change set). Reply "ok" to proceed, or describe refinements.'
+        : 'Product/architect produced no plan (empty output). Reply "ok" to proceed with just the feature request, or describe what you want built.';
       const answer = await this.suspend('intake', ask);
       const trimmed = answer.trim();
       if (trimmed && !APPROVAL_YES.has(trimmed.toLowerCase())) {
         confirmed = `${featurePrompt}\n\nHuman refinement: ${trimmed}`;
         // Re-plan once with the refinement folded in.
-        plan = await this.callAgent(
-          'orchestrator',
-          'intake',
-          `Feature request:\n${confirmed}\n\nProduce the plan per your output contract.`,
-        );
+        ({ criteria, design } = await this.plan(confirmed));
       }
     }
     this.state.confirmedFeature = confirmed;
-    await this.info(`Plan confirmed. Proceeding to requirements.`);
-
-    // --- Requirements (product) ---
-    const criteria = await this.callAgent(
-      'product',
-      'requirements',
-      `Feature:\n${confirmed}\n\nOrchestrator plan:\n${plan}\n\nProduce the acceptance criteria per your output contract.`,
-    );
-
-    // --- Design (architect) ---
-    const design = await this.callAgent(
-      'architect',
-      'design',
-      `Feature:\n${confirmed}\n\nAcceptance criteria:\n${criteria}\n\nExplore the repo, then produce the change set per your output contract.`,
-    );
+    await this.info(`Plan confirmed. Proceeding to implementation.`);
 
     // --- Implement (coder) — first pass ---
     let coderText = await this.callAgent(
@@ -375,6 +361,44 @@ export class HarnessRunner {
     }
 
     return this.end(true, endReason, summary, { branch, commit });
+  }
+
+  /** One planning pass: product produces acceptance criteria from the feature,
+   *  architect produces a change set from the feature + criteria. Both derive
+   *  directly from the feature prompt (no orchestrator plan in between). */
+  private async plan(feature: string): Promise<{ criteria: string; design: string }> {
+    const criteria = await this.callAgent(
+      'product',
+      'requirements',
+      `Feature:\n${feature}\n\nProduce the acceptance criteria per your output contract.`,
+    );
+    const design = await this.callAgent(
+      'architect',
+      'design',
+      `Feature:\n${feature}\n\nAcceptance criteria:\n${criteria}\n\nExplore the repo, then produce the change set per your output contract.`,
+    );
+    return { criteria, design };
+  }
+
+  /** A product ⇄ architect refinement round: product refines the criteria in
+   *  light of the architect's design, then architect refines the change set in
+   *  light of the refined criteria. */
+  private async refinePlan(
+    feature: string,
+    criteria: string,
+    design: string,
+  ): Promise<{ criteria: string; design: string }> {
+    const refinedCriteria = await this.callAgent(
+      'product',
+      'requirements',
+      `Feature:\n${feature}\n\nCurrent acceptance criteria:\n${criteria}\n\nProposed design:\n${design}\n\nRefine the acceptance criteria in light of the design. Output the updated criteria per your output contract.`,
+    );
+    const refinedDesign = await this.callAgent(
+      'architect',
+      'design',
+      `Feature:\n${feature}\n\nAcceptance criteria:\n${refinedCriteria}\n\nCurrent design:\n${design}\n\nRefine the change set in light of the refined criteria. Explore the repo, then output the updated change set per your output contract.`,
+    );
+    return { criteria: refinedCriteria, design: refinedDesign };
   }
 
   private async commit(_summary: string): Promise<{ branch: string; commit: string } | undefined> {
