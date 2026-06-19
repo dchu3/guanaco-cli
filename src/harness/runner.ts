@@ -18,13 +18,22 @@ function truncate(text: string, maxBytes: number): string {
   return `${buf.subarray(0, maxBytes).toString('utf8')}\n…[truncated ${buf.length - maxBytes} bytes]`;
 }
 
-/** Thrown when an agent turn is stopped — either by the user (Esc) or by the
- * per-turn timeout. `run()` catches it and ends the run with a friendly
- * `endReason` instead of surfacing a raw AbortError. */
+/** Thrown when an agent turn is stopped — either by the user (Esc), by the
+ * per-turn timeout, by an output cap, or by an unavailable-tool error from the
+ * LLM. `run()` catches it and ends the run with a friendly `endReason` instead
+ * of surfacing a raw exception. */
 export class HarnessAbortError extends Error {
-  readonly reason: 'user' | 'timeout' | 'output-cap';
-  constructor(reason: 'user' | 'timeout' | 'output-cap') {
-    super(reason === 'output-cap' ? 'Agent turn exceeded the output size limit' : reason === 'timeout' ? 'Agent turn timed out' : 'Harness stopped by user');
+  readonly reason: 'user' | 'timeout' | 'output-cap' | 'tool-error';
+  constructor(reason: 'user' | 'timeout' | 'output-cap' | 'tool-error') {
+    super(
+      reason === 'tool-error'
+        ? 'Agent tried to call an unavailable tool'
+        : reason === 'output-cap'
+          ? 'Agent turn exceeded the output size limit'
+          : reason === 'timeout'
+            ? 'Agent turn timed out'
+            : 'Harness stopped by user',
+    );
     this.name = 'HarnessAbortError';
     this.reason = reason;
   }
@@ -36,6 +45,27 @@ function parseVerdict(text: string, positive: string[], negative: string[]): 'po
   for (const neg of negative) if (upper.includes(neg.toUpperCase())) return 'negative';
   for (const pos of positive) if (upper.includes(pos.toUpperCase())) return 'positive';
   return 'unknown';
+}
+
+/** Detect AI SDK / Mastra "Model tried to call unavailable tool" errors. */
+function isNoSuchToolError(err: unknown): { toolName: string | undefined } | undefined {
+  if (err === null || err === undefined) return undefined;
+  const msg = err instanceof Error ? err.message : String(err);
+  const isMatch =
+    /NoSuchToolError|AI_NoSuchToolError|Model tried to call unavailable tool/i.test(msg) ||
+    (err instanceof Error &&
+      (err.name === 'NoSuchToolError' ||
+        err.name === 'AI_NoSuchToolError' ||
+        (err.cause instanceof Error && /NoSuchToolError|AI_NoSuchToolError/i.test(err.cause.name))));
+  if (!isMatch) return undefined;
+  let toolName: string | undefined;
+  const match = msg.match(/unavailable tool ['"]([^'"]+)['"]/i);
+  if (match) toolName = match[1];
+  else {
+    const generic = msg.match(/tool ['"]([^'"]+)['"]/i);
+    if (generic) toolName = generic[1];
+  }
+  return { toolName };
 }
 
 export interface HarnessRunnerOptions {
@@ -195,6 +225,12 @@ export class HarnessRunner {
       await this.step('end');
       return text;
     } catch (err) {
+      const noTool = isNoSuchToolError(err);
+      if (noTool) {
+        const name = noTool.toolName ?? 'unknown';
+        await this.info(`${role} tried to call unavailable tool '${name}'. Stopping turn.`);
+        throw new HarnessAbortError('tool-error');
+      }
       if ((abortReason === 'timeout' || abortReason === 'output-cap') && recoverOnTimeout) {
         // Keep whatever streamed before the stall and let the caller's loop
         // decide what to do (typically: treat as a failed attempt, retry the
@@ -240,7 +276,15 @@ export class HarnessRunner {
       return await this.runBody(featurePrompt);
     } catch (err) {
       if (err instanceof HarnessAbortError) {
-        return this.end(false, err.reason === 'timeout' || err.reason === 'output-cap' ? 'timeout' : 'aborted', err.message);
+        return this.end(
+          false,
+          err.reason === 'timeout' || err.reason === 'output-cap'
+            ? 'timeout'
+            : err.reason === 'tool-error'
+              ? 'tool-error'
+              : 'aborted',
+          err.message,
+        );
       }
       throw err;
     }

@@ -51,6 +51,20 @@ function hangUntilAbort(role: SdlcRole): AgentLike {
   };
 }
 
+/** Build a stub agent whose stream() throws a Mastra/AI SDK NoSuchToolError. */
+function stubAgentThrowsNoSuchTool(role: SdlcRole, toolName: string): AgentLike {
+  return {
+    id: role,
+    stream: async () => {
+      const err = new Error(
+        `NoSuchToolError [AI_NoSuchToolError]: Model tried to call unavailable tool '${toolName}'. Available tools: read_file, grep, git_diff.`,
+      );
+      err.name = 'AI_NoSuchToolError';
+      throw err;
+    },
+  };
+}
+
 function makeAgents(overrides: Partial<Record<SdlcRole, string[] | ((c: number) => string)>> = {}): SdlcAgents {
   const defaults: Record<SdlcRole, string[]> = {
     orchestrator: ['PLAN'],
@@ -116,6 +130,28 @@ const noSuspendHooks: HarnessHooks = {
 };
 
 describe('HarnessRunner', () => {
+  it('ends with reason "tool-error" when a model calls an unavailable tool', async () => {
+    const agents = makeAgents();
+    agents.reviewer = stubAgentThrowsNoSuchTool('reviewer', 'shell');
+    const { git } = makeFakeGit();
+    const infos: string[] = [];
+    const hooks: HarnessHooks = {
+      onSuspend: async () => 'no',
+      onInfo: (t) => void infos.push(t),
+    };
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({ autoCommit: false, humanInLoopIntake: false }),
+      git,
+      hooks,
+    });
+    const res = await runner.run('feature');
+    expect(res.ok).toBe(false);
+    expect(res.endReason).toBe('tool-error');
+    expect(res.summary).toMatch(/unavailable tool/i);
+    expect(infos.some((t) => /reviewer tried to call unavailable tool 'shell'/i.test(t))).toBe(true);
+  });
+
   it('runs the happy path and commits when autoCommit is true', async () => {
     const agents = makeAgents();
     const { git } = makeFakeGit();

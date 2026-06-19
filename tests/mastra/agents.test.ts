@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createMockModel } from '@mastra/core/test-utils/llm-mock';
-import { createSdlcAgents, isV4Model, routeAgentStream, type AgentStreamMethods } from '../../src/mastra/agents.js';
+import {
+  createSdlcAgents,
+  isV4Model,
+  routeAgentStream,
+  type AgentStreamMethods,
+  ROLE_TOOLS,
+  AGENT_INSTRUCTIONS,
+  buildToolRestriction,
+} from '../../src/mastra/agents.js';
 import { buildSdlcTools } from '../../src/mastra/tools.js';
 import { HarnessRunner } from '../../src/harness/runner.js';
 import { GitOps } from '../../src/harness/git.js';
@@ -33,6 +41,37 @@ function makeConfig(repoRoot: string, over: Partial<HarnessConfig> = {}): Harnes
 function mockModel(text: string, version: 'v1' | 'v2' = 'v2') {
   return createMockModel({ mockText: text, version }) as never;
 }
+
+describe('buildToolRestriction', () => {
+  it('tells tool-less roles not to call any tools', () => {
+    expect(buildToolRestriction('orchestrator')).toMatch(/NO tools available/i);
+    expect(buildToolRestriction('product')).toMatch(/NO tools available/i);
+  });
+
+  it('lists only the allowed tools for each tooling role', () => {
+    expect(buildToolRestriction('reviewer')).toBe(
+      '\nTool restriction: You may ONLY call these tools: read_file, grep, git_diff. Do not call any other tool name.',
+    );
+    expect(buildToolRestriction('architect')).toContain('read_file');
+    expect(buildToolRestriction('architect')).not.toContain('shell');
+    expect(buildToolRestriction('coder')).toContain('shell');
+    expect(buildToolRestriction('tester')).toContain('shell');
+  });
+});
+
+describe('AGENT_INSTRUCTIONS tool alignment', () => {
+  it('does not direct non-shell roles to use the shell tool', () => {
+    const roles = Object.keys(ROLE_TOOLS) as import('../../src/config.js').SdlcRole[];
+    for (const role of roles) {
+      const allowed = new Set(ROLE_TOOLS[role] as string[]);
+      if (allowed.has('shell')) {
+        expect(AGENT_INSTRUCTIONS[role]).toMatch(/\bshell tool\b/);
+      } else {
+        expect(AGENT_INSTRUCTIONS[role]).not.toMatch(/\bshell tool\b/);
+      }
+    }
+  });
+});
 
 describe('createSdlcAgents (real Mastra Agent + mock model)', () => {
   it('streams the configured mock text for a single agent turn', async () => {

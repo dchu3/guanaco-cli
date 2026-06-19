@@ -91,15 +91,20 @@ export const ROLE_TOOLS: Record<SdlcRole, (keyof SdlcToolRecord)[]> = {
   tester: ['read_file', 'write_file', 'edit_file', 'glob', 'grep', 'shell'],
 };
 
-/** Shared preamble every agent sees so the whole team stays repo-grounded. */
+/** Shared preamble every agent sees so the whole team stays repo-grounded.
+ *  It deliberately does NOT mention the shell tool; only coder/tester are allowed
+ *  shell, and their instructions extend this with shell guidance. */
 const SHARED_PREAMBLE = `You are part of an automated software-development harness operating inside a git repository.
 Hard rules:
 - Work only inside the repo root. Never touch files outside it.
 - Prefer edit_file over write_file for targeted changes. edit_file edits use the keys "oldText" and "newText" ("old"/"new" and "find"/"replace" are accepted as aliases).
 - Do not run git commit, git push, sudo, or any destructive shell command — the harness handles git commits after human approval.
-- When you must run a build/test, use the shell tool.
 - Formatting: ALWAYS put shell commands, code, and file contents in fenced code blocks (e.g. \`\`\`bash) on their OWN lines, separated by a blank line from prose. Never run a command or code inline with a sentence.
-- Stay within your role. Hand off to the next stage by producing your role's output contract, never by free-form chatting.`;
+- Stay within your role. Hand off to the next stage by producing your role's output contract, never by free-form chatting.
+- Do not invent tool names. If a tool you need is not in your allowed list, stop and report what is missing instead of calling it.`;
+
+/** Extra guidance only for roles that actually have the shell tool. */
+const SHELL_GUIDANCE = `\n- When you must run a build/test, use the shell tool.`;
 
 export const AGENT_INSTRUCTIONS: Record<SdlcRole, string> = {
   orchestrator: `${SHARED_PREAMBLE}
@@ -123,7 +128,7 @@ Output contract (markdown):
 - "## Design" — short rationale.
 - "## Change Set" — a bullet list of \`<path>: <create|modify> — <why>\`.
 Do not edit files.`,
-  coder: `${SHARED_PREAMBLE}
+  coder: `${SHARED_PREAMBLE}${SHELL_GUIDANCE}
 
 You are the CODER. Implement the change set using your tools. After editing, run the build/lint via the shell tool and fix any errors you introduced. Iterate until the build is green (or you are stuck).
 Output contract (markdown):
@@ -137,7 +142,7 @@ Output contract (markdown):
 - "## Findings" — bullet list of issues (or "None").
 - "## Verdict" — exactly one line, one of: "APPROVE" or "CHANGES_REQUESTED".
 Use "CHANGES_REQUESTED" only when there are concrete blocking issues; otherwise "APPROVE".`,
-  tester: `${SHARED_PREAMBLE}
+  tester: `${SHARED_PREAMBLE}${SHELL_GUIDANCE}
 
 You are the TESTER. Write or update tests for the change and run them via the shell tool (e.g. \`npm test\`).
 Output contract (markdown):
@@ -156,6 +161,17 @@ export interface CreateSdlcAgentsOptions {
   instructionsOverride?: Partial<Record<SdlcRole, string>>;
 }
 
+/** Build a concise, role-specific reminder of which tools are (not) available.
+ *  This is appended to every agent's instructions so models cannot plausibly
+ *  claim they "forgot" they lacked a tool such as shell. */
+export function buildToolRestriction(role: SdlcRole): string {
+  const allowed = ROLE_TOOLS[role];
+  if (!allowed || allowed.length === 0) {
+    return '\nTool restriction: You have NO tools available. Do not call any tools; work only from the provided context.';
+  }
+  return `\nTool restriction: You may ONLY call these tools: ${allowed.join(', ')}. Do not call any other tool name.`;
+}
+
 /**
  * Build the six SDLC agents as real Mastra `Agent` instances. Each agent is
  * wired to its role-specific model and scoped tool subset.
@@ -167,10 +183,12 @@ export function createSdlcAgents(opts: CreateSdlcAgentsOptions): SdlcAgents {
     const tools = toolSet.subset(ROLE_TOOLS[role] as string[]);
     const hasTools = Object.keys(tools).length > 0;
     const model = getModel(role);
+    const baseInstructions = instructionsOverride?.[role] ?? AGENT_INSTRUCTIONS[role];
+    const instructions = `${baseInstructions}${buildToolRestriction(role)}`;
     const agent = new Agent({
       id: role,
       name,
-      instructions: instructionsOverride?.[role] ?? AGENT_INSTRUCTIONS[role],
+      instructions,
       model,
       maxRetries: 1,
       ...(hasTools ? { tools: tools as never } : {}),
