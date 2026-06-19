@@ -27,9 +27,17 @@ export interface HarnessConfig {
   humanInLoopIntake: boolean;
   /** Per shell-tool-call timeout (ms). */
   toolTimeoutMs: number;
-  /** Per agent-turn timeout (ms); 0 disables. Guards against stalled LLM
-   *  streams that would otherwise hang a harness phase (e.g. intake). */
+  /** Per agent-turn *inactivity* timeout (ms); 0 disables. Aborts a turn
+   *  only when no tokens have streamed for this long — i.e. a stalled LLM
+   *  stream — rather than capping the turn's total wall-clock. A productive
+   *  turn that keeps streaming (or is running tool calls up to
+   *  `toolTimeoutMs`) is not penalised for being long. Must be greater than
+   *  `toolTimeoutMs` so a legitimate tool call isn't mistaken for a stall. */
   agentTurnTimeoutMs?: number;
+  /** Per agent-turn *hard* wall-clock cap (ms); 0 disables (default). Bounds
+   *  a runaway turn that never stalls but never finishes. Distinct from
+   *  `agentTurnTimeoutMs` (inactivity): this one is never reset. */
+  agentTurnHardTimeoutMs?: number;
   /** Repo root the harness is allowed to operate inside. */
   repoRoot: string;
   /** When true, the harness may run `git commit` itself after human approval. */
@@ -180,6 +188,7 @@ export function loadConfig(): AppConfig {
     humanInLoopIntake: boolEnv('HARNESS_HUMAN_IN_LOOP_INTAKE', true),
     toolTimeoutMs: intEnv('HARNESS_TOOL_TIMEOUT_MS', 120_000, { min: 1000 }),
     agentTurnTimeoutMs: intEnv('HARNESS_AGENT_TIMEOUT_MS', 300_000, { min: 0 }),
+    agentTurnHardTimeoutMs: intEnv('HARNESS_AGENT_HARD_TIMEOUT_MS', 0, { min: 0 }),
     repoRoot: process.env.HARNESS_REPO_ROOT?.trim() || process.cwd(),
     autoCommit,
   };

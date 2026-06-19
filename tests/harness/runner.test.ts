@@ -321,4 +321,72 @@ describe('HarnessRunner', () => {
     expect(res.ok).toBe(false);
     expect(res.endReason).toBe('timeout');
   });
+
+  it('recovers from a work-loop turn timeout instead of killing the whole run', async () => {
+    // Tester stalls on its one (maxTestCycles=0) turn. Because tester turns are
+    // recoverable, the run should NOT end with 'timeout' — it recovers an empty
+    // report, treats it as a failed attempt, and proceeds to finalize.
+    const agents = makeAgents();
+    agents.tester = hangUntilAbort('tester');
+    const { git } = makeFakeGit();
+    const infos: string[] = [];
+    const hooks: HarnessHooks = { onSuspend: async () => 'no', onInfo: (t) => void infos.push(t) };
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({
+        autoCommit: false,
+        humanInLoopIntake: false,
+        agentTurnTimeoutMs: 50,
+        maxTestCycles: 0,
+        maxReviewCycles: 0,
+      }),
+      git,
+      hooks,
+    });
+    const res = await runner.run('feature');
+    expect(res.ok).toBe(true);
+    expect(res.endReason).toBe('completed-no-commit');
+    expect(infos.some((t) => /tester turn timed out/.test(t))).toBe(true);
+  });
+
+  it('inactivity timeout resets on each token, so a slow-but-streaming turn completes', async () => {
+    // The tester streams 6 tokens 25ms apart (≈150ms total). The inactivity
+    // window is 400ms and there is no hard cap. A wall-clock 400ms timeout
+    // would still be fine here, but the point is that the timer resets on each
+    // delta; if it didn't, a long turn would still complete. We assert the
+    // turn's full text is recorded.
+    const tokens = ['## Tests', 'added t', '## Results', 'ok', '## Verdict', 'TESTS_PASSED'];
+    const tester: AgentLike = {
+      id: 'tester',
+      stream: async () => {
+        async function* gen(): AsyncGenerator<string> {
+          for (const tk of tokens) {
+            await new Promise((r) => setTimeout(r, 25));
+            yield tk;
+          }
+        }
+        return { textStream: gen(), text: Promise.resolve(tokens.join('')) };
+      },
+    };
+    const agents = makeAgents();
+    agents.tester = tester;
+    const { git } = makeFakeGit();
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({
+        autoCommit: false,
+        humanInLoopIntake: false,
+        agentTurnTimeoutMs: 400,
+        agentTurnHardTimeoutMs: 0,
+        maxReviewCycles: 0,
+        maxTestCycles: 0,
+      }),
+      git,
+      hooks: noSuspendHooks,
+    });
+    const res = await runner.run('feature');
+    expect(res.ok).toBe(true);
+    const testerEntry = res.log.find((l) => l.agent === 'tester');
+    expect(testerEntry?.text).toBe(tokens.join(''));
+  });
 });
