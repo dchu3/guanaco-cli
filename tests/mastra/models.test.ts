@@ -16,6 +16,7 @@ function makeConfig(over: Partial<HarnessConfig> = {}): HarnessConfig {
     toolTimeoutMs: 5000,
     repoRoot: '/tmp/repo',
     autoCommit: false,
+    autoStash: true,
     ...over,
   };
 }

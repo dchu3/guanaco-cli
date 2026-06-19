@@ -183,6 +183,7 @@ plain exported env vars from your shell profile work too.
 | `HARNESS_MAX_PLAN_CYCLES`   |     | `0`                      | Max Product⇄Architect plan refinement rounds |
 | `HARNESS_MAX_AGENT_STEPS`  |     | `12`                     | Max tool-loop steps per agent turn     |
 | `HARNESS_AUTO_COMMIT`  |          | `1`                      | `1` = commit without asking            |
+| `HARNESS_AUTO_STASH`  |          | `1`                      | `1` = auto-stash a dirty tree before a run and restore it after (instead of hard-blocking with `dirty-tree`). `0` = require a clean tree. |
 | `HARNESS_HUMAN_IN_LOOP_INTAKE` |  | `0`                      | Pause at intake to confirm the plan    |
 | `HARNESS_TOOL_TIMEOUT_MS`   |     | `300000`                 | Per `shell` tool call timeout (ms)      |
 | `HARNESS_AGENT_TIMEOUT_MS`  |     | `300000`                 | Per-turn *inactivity* timeout (ms); keep > tool timeout. 0 = off |

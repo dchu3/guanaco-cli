@@ -113,15 +113,17 @@ function makeConfig(over: Partial<HarnessConfig> = {}): HarnessConfig {
     toolTimeoutMs: 5000,
     repoRoot: '/tmp/repo',
     autoCommit: false,
+    autoStash: true,
     ...over,
   };
 }
 
 /** Fake git exec that tracks the commands it ran and can simulate clean/dirty tree + commit. */
-function makeFakeGit(opts: { clean?: boolean; isRepo?: boolean } = {}): { git: GitOps; cmds: string[] } {
+function makeFakeGit(opts: { clean?: boolean; isRepo?: boolean; branch?: string } = {}): { git: GitOps; cmds: string[] } {
   const cmds: string[] = [];
   const clean = opts.clean ?? true;
   const isRepo = opts.isRepo ?? true;
+  const branch = opts.branch ?? 'main';
   const execImpl: ExecFn = async (cmd) => {
     cmds.push(cmd);
     const c = cmd.trim();
@@ -129,8 +131,12 @@ function makeFakeGit(opts: { clean?: boolean; isRepo?: boolean } = {}): { git: G
       if (!isRepo) throw new Error('not a repo');
       return { stdout: 'true', stderr: '' };
     }
+    if (c === 'git rev-parse --abbrev-ref HEAD') return { stdout: branch, stderr: '' };
     if (c === 'git status --porcelain') return { stdout: clean ? '' : 'M  foo.txt', stderr: '' };
     if (c.startsWith('git checkout -b')) return { stdout: '', stderr: '' };
+    if (c.startsWith('git stash push')) return { stdout: '', stderr: '' };
+    if (c === 'git stash pop') return { stdout: '', stderr: '' };
+    if (c.startsWith('git checkout ')) return { stdout: '', stderr: '' };
     if (c === 'git add -A') return { stdout: '', stderr: '' };
     if (c.startsWith('git commit -m')) return { stdout: '', stderr: '' };
     if (c === 'git rev-parse HEAD') return { stdout: 'deadbeefcafebabe1234', stderr: '' };
@@ -270,12 +276,12 @@ describe('HarnessRunner', () => {
     expect(res.log.filter((l) => l.agent === 'tester').length).toBe(2);
   });
 
-  it('refuses to auto-commit on a dirty tree and runs no agents', async () => {
+  it('refuses to auto-commit on a dirty tree when autoStash is off and runs no agents', async () => {
     const agents = makeAgents();
-    const { git } = makeFakeGit({ clean: false });
+    const { git, cmds } = makeFakeGit({ clean: false });
     const runner = new HarnessRunner({
       agents,
-      config: makeConfig({ autoCommit: true }),
+      config: makeConfig({ autoCommit: true, autoStash: false }),
       git,
       hooks: noSuspendHooks,
     });
@@ -283,6 +289,51 @@ describe('HarnessRunner', () => {
     expect(res.ok).toBe(false);
     expect(res.endReason).toBe('dirty-tree');
     expect(res.log).toHaveLength(0);
+    expect(cmds.some((c) => c.startsWith('git stash'))).toBe(false);
+  });
+
+  it('auto-stashes a dirty tree, runs, commits on a branch, then restores the original branch and pops the stash', async () => {
+    const agents = makeAgents();
+    const { git, cmds } = makeFakeGit({ clean: false, branch: 'main' });
+    const infos: string[] = [];
+    const hooks: HarnessHooks = {
+      onSuspend: async () => 'ok',
+      onInfo: (t) => void infos.push(t),
+    };
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({ autoCommit: true, autoStash: true }),
+      git,
+      hooks,
+    });
+    const res = await runner.run('fix the broken tests');
+    expect(res.ok).toBe(true);
+    expect(res.endReason).toBe('completed');
+    // Pre-existing changes were stashed before the run.
+    expect(cmds.some((c) => c.startsWith('git stash push -u'))).toBe(true);
+    // Harness committed on its own branch.
+    expect(cmds.some((c) => c.startsWith("git checkout -b 'harness-") || c.startsWith('git checkout -b harness-'))).toBe(true);
+    // After the run the original branch was restored and the stash popped.
+    expect(cmds.some((c) => c === "git checkout 'main'" || c === 'git checkout main')).toBe(true);
+    expect(cmds.some((c) => c === 'git stash pop')).toBe(true);
+    expect(infos.some((t) => /auto-stashed your pre-existing changes/i.test(t))).toBe(true);
+    expect(infos.some((t) => /Restored your pre-existing changes to main/i.test(t))).toBe(true);
+  });
+
+  it('does not stash on a clean tree even with autoStash on', async () => {
+    const agents = makeAgents();
+    const { git, cmds } = makeFakeGit({ clean: true, branch: 'main' });
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({ autoCommit: true, autoStash: true }),
+      git,
+      hooks: noSuspendHooks,
+    });
+    const res = await runner.run('feature');
+    expect(res.ok).toBe(true);
+    expect(cmds.some((c) => c.startsWith('git stash'))).toBe(false);
+    expect(cmds.some((c) => c === 'git stash pop')).toBe(false);
+    expect(cmds.some((c) => c === 'git checkout main')).toBe(false);
   });
 
   it('refuses to run outside a git repo', async () => {

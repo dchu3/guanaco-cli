@@ -108,6 +108,10 @@ export class HarnessRunner {
 
   private runStartedAt = 0;
 
+  /** When set, the harness auto-stashed pre-existing changes before the run
+   *  and must restore them (on this branch) when the run ends. */
+  private stashedBranch: string | undefined;
+
   constructor(opts: HarnessRunnerOptions) {
     this.agents = opts.agents;
     this.cfg = opts.config;
@@ -314,6 +318,29 @@ export class HarnessRunner {
         );
       }
       throw err;
+    } finally {
+      await this.restoreStashIfAny();
+    }
+  }
+
+  /** Restore auto-stashed pre-existing changes after a run (whatever the
+   *  outcome). Switches back to the original branch and pops the stash so the
+   *  user's working tree is exactly as it was before the run, while the
+   *  harness's own work remains committed on its feature branch. Best-effort:
+   *  a pop conflict leaves the stash in place and surfaces a clear note. */
+  private async restoreStashIfAny(): Promise<void> {
+    const originalBranch = this.stashedBranch;
+    this.stashedBranch = undefined;
+    if (!originalBranch) return;
+    try {
+      await this.git.checkoutBranch(originalBranch);
+      await this.git.stashPop();
+      await this.info(`Restored your pre-existing changes to ${originalBranch} (harness work is on its own branch).`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await this.info(
+        `Could not auto-restore your stashed changes onto ${originalBranch}: ${msg}. They are still in the git stash — run \`git stash pop\` manually when ready.`,
+      );
     }
   }
 
@@ -321,8 +348,10 @@ export class HarnessRunner {
     this.runStartedAt = Date.now();
     this.state.feature = featurePrompt;
 
-    // --- Preflight: only commit into a clean git tree so we never bundle the
-    // user's pre-existing work into the harness commit. ---
+    // --- Preflight: keep the user's pre-existing work out of the harness
+    // commit. With autoCommit on, a dirty tree is either auto-stashed
+    // (autoStash, default) or hard-blocked (autoStash off) so we never bundle
+    // unrelated changes into the harness commit. ---
     const isRepo = await this.git.isGitRepo();
     if (!isRepo) {
       return this.end(false, 'not-a-git-repo', `Not a git repo: ${this.cfg.repoRoot}`);
@@ -330,11 +359,32 @@ export class HarnessRunner {
     if (this.cfg.autoCommit) {
       const clean = await this.git.isCleanTree();
       if (!clean) {
-        return this.end(
-          false,
-          'dirty-tree',
-          'Working tree is not clean. Commit or stash your changes before running the harness with --auto-commit.',
-        );
+        if (!this.cfg.autoStash) {
+          return this.end(
+            false,
+            'dirty-tree',
+            'Working tree is not clean. Commit or stash your changes before running the harness, or enable HARNESS_AUTO_STASH=1 to auto-stash.',
+          );
+        }
+        // Auto-stash pre-existing changes (incl. untracked) and remember the
+        // branch so we can restore them after the harness commits on its own
+        // branch. If stashing itself fails, fall back to the dirty-tree block
+        // rather than risking bundling unrelated work into the commit.
+        try {
+          const originalBranch = await this.git.currentBranch();
+          await this.git.stashPush('guanaco-harness auto-stash (pre-existing changes)');
+          this.stashedBranch = originalBranch;
+          await this.info(
+            `Working tree was dirty; auto-stashed your pre-existing changes. They will be restored to ${originalBranch} after the run.`,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return this.end(
+            false,
+            'dirty-tree',
+            `Working tree is not clean and auto-stash failed: ${msg}. Commit or stash your changes manually before running the harness.`,
+          );
+        }
       }
     }
 
