@@ -170,12 +170,14 @@ plain exported env vars from your shell profile work too.
 | `HARNESS_MAX_REVIEW_CYCLES` |     | `2`                      | Max Coder⇄Reviewer loops               |
 | `HARNESS_MAX_TEST_CYCLES`   |     | `2`                      | Max Coder⇄Tester loops                 |
 | `HARNESS_MAX_PLAN_CYCLES`   |     | `0`                      | Max Product⇄Architect plan refinement rounds |
-| `HARNESS_MAX_AGENT_STEPS`  |     | `8`                      | Max tool-loop steps per agent turn     |
+| `HARNESS_MAX_AGENT_STEPS`  |     | `5` local / `8` cloud    | Max tool-loop steps per agent turn     |
 | `HARNESS_AUTO_COMMIT`  |          | `0`                      | `1` = commit without asking            |
 | `HARNESS_HUMAN_IN_LOOP_INTAKE` |  | `1`                      | Pause at intake to confirm the plan    |
 | `HARNESS_TOOL_TIMEOUT_MS`   |     | `120000`                 | Per `shell` tool call timeout (ms)      |
 | `HARNESS_AGENT_TIMEOUT_MS`  |     | `300000`                 | Per-turn *inactivity* timeout (ms); keep > tool timeout. 0 = off |
-| `HARNESS_AGENT_HARD_TIMEOUT_MS` |  | `0`                      | Per-turn hard wall-clock cap (ms); 0 = off |
+| `HARNESS_AGENT_HARD_TIMEOUT_MS` |  | `600000`                 | Per-turn hard wall-clock cap (ms); 0 = off |
+| `HARNESS_MAX_TURN_OUTPUT_BYTES` |  | `1000000`               | Max streamed bytes per agent turn before truncation/abort |
+| `HARNESS_MAX_WALL_CLOCK_MS` |     | `0`                      | Max total wall-clock time for a full run (ms); 0 = off |
 | `HARNESS_REPO_ROOT`    |          | `process.cwd()`           | Repo root the harness is jailed to      |
 | `OLLAMA_TEMPERATURE`   |          | `0.8`                    | Overridable via `--temperature`        |
 | `OLLAMA_TOP_P`         |          | `0.9`                    | Overridable via `--top-p`              |
