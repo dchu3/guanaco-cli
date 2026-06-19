@@ -108,8 +108,8 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
   // Each `execute` then guards the missing field and returns an `error` result
   // (never throws) so the agent is told what's missing and can retry. The same
   // "return errors, don't throw" rule applies to jail/out-of-repo, not-found,
-  // invalid-regex, and git-diff failures: a thrown tool error surfaces as a
-  // Mastra "Error executing tool" and disrupts the stream.
+  // invalid-regex, and edit_file oldText-not-found: a thrown tool error
+  // surfaces as a Mastra "Error executing tool" and disrupts the stream.
 
   const readFileTool = createTool({
     id: 'read_file',
@@ -176,20 +176,30 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
   const editFileTool = createTool({
     id: 'edit_file',
     description:
-      'Apply exact-text replacements to a file. Each edit must match a unique, non-overlapping region of the current file content. Prefer this over write_file for targeted changes.',
+      'Apply exact-text replacements to a file. Each edit must match a unique, non-overlapping region of the current file content. Prefer edit_file over write_file for targeted changes. Each edit needs the text to find and its replacement; the canonical keys are `oldText`/`newText`, but `old`/`new`, `old_str`/`new_str`, and `find`/`replace` are also accepted.',
     inputSchema: z.object({
       path: z.string().optional().describe('Repo-relative path to the file.'),
       edits: z
         .array(
-          z.object({
-            oldText: z.string().optional().describe('Exact text to find.'),
-            newText: z.string().optional().describe('Replacement text.'),
-            // Aliases some models emit instead of oldText/newText.
-            old: z.string().optional().describe('Alias for oldText.'),
-            new: z.string().optional().describe('Alias for newText.'),
-            find: z.string().optional().describe('Alias for oldText.'),
-            replace: z.string().optional().describe('Alias for newText.'),
-          }),
+          // Models sometimes emit `old`/`new`, `old_str`/`new_str`, or
+          // `find`/`replace` instead of `oldText`/`newText`; normalize before
+          // the schema validates so those calls parse.
+          z.preprocess(
+            (v) => {
+              if (v && typeof v === 'object') {
+                const o = v as Record<string, unknown>;
+                return {
+                  oldText: o.oldText ?? o.old ?? o.old_str ?? o.find,
+                  newText: o.newText ?? o.new ?? o.new_str ?? o.replace,
+                };
+              }
+              return v;
+            },
+            z.object({
+              oldText: z.string().optional().describe('Exact text to find.'),
+              newText: z.string().optional().describe('Replacement text.'),
+            }),
+          ),
         )
         .optional(),
     }),
@@ -198,7 +208,13 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
       if (!path || !path.trim()) {
         return { path: path ?? '', appliedEdits: 0, error: 'edit_file: "path" is required' };
       }
-      const edits = input.edits ?? [];
+      // input.edits is typed as unknown[] (preprocess input); normalize aliases
+      // here too so direct callers work the same as model tool-calls.
+      const rawEdits = (input.edits ?? []) as Array<Record<string, string | undefined>>;
+      const edits = rawEdits.map((e) => ({
+        oldText: e.oldText ?? e.old ?? e.old_str ?? e.find,
+        newText: e.newText ?? e.new ?? e.new_str ?? e.replace,
+      }));
       if (edits.length === 0) {
         return { path, appliedEdits: 0, error: 'edit_file: "edits" is required' };
       }
@@ -206,22 +222,20 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
         const abs = jailPath(repoRoot, path);
         let content = await readFile(abs, 'utf8');
         for (const e of edits) {
-          const oldText = e.oldText ?? e.old ?? e.find;
-          const newText = e.newText ?? e.new ?? e.replace;
-          if (oldText === undefined || newText === undefined) {
+          if (e.oldText === undefined || e.newText === undefined) {
             return {
               path,
               appliedEdits: 0,
               error:
-                'edit_file: each edit needs "oldText" and "newText" (aliases "old"/"new" or "find"/"replace" are accepted)',
+                'edit_file: each edit needs "oldText" and "newText" (aliases "old"/"new", "old_str"/"new_str", or "find"/"replace" are accepted)',
             };
           }
-          const idx = content.indexOf(oldText);
+          const idx = content.indexOf(e.oldText);
           if (idx === -1) {
             return { path, appliedEdits: 0, error: `edit_file: oldText not found in ${path}` };
           }
-          const after = content.slice(idx + oldText.length);
-          content = content.slice(0, idx) + newText + after;
+          const after = content.slice(idx + e.oldText.length);
+          content = content.slice(0, idx) + e.newText + after;
         }
         await writeFile(abs, content, 'utf8');
         debug('harness-tool', `edit_file ${path} (${edits.length} edits)`);
@@ -317,81 +331,99 @@ export function buildSdlcTools(opts: BuildSdlcToolsOptions) {
   const shellTool = createTool({
     id: 'shell',
     description:
-      'Run a shell command inside the repo root. Destructive/git-push/sudo commands are refused. Use for builds, linters, tests, and read-only git queries.',
+      'Run a shell command inside the repo root. Destructive/git-push/sudo commands are refused. Use for builds, linters, tests, and read-only git queries. Returns stdout, stderr, and exitCode; a non-zero exitCode is NOT an error — inspect it and the output to diagnose build/test failures.',
     inputSchema: z.object({
       command: z.string().optional().describe('Command line to execute.'),
     }),
     execute: async (input) => {
       const command = input.command;
       if (!command || !command.trim()) {
-        return { ok: false, exitCode: -1, stdout: '', stderr: 'shell: "command" is required' };
+        return { stdout: '', stderr: 'shell: "command" is required', exitCode: -1 };
       }
       for (const deny of SHELL_DENYLIST) {
         if (deny.test(command)) {
-          return {
-            ok: false,
-            exitCode: -1,
-            stdout: '',
-            stderr: `shell: refused (matches denylist): ${command}`,
-          };
+          return { stdout: '', stderr: `shell: refused (matches denylist): ${command}`, exitCode: -1 };
         }
       }
       debug('harness-tool', `shell: ${command}`);
-      // A non-zero exit (failing tests/lint/build) is informative in an agentic
-      // loop, not exceptional: return the output + exit code so the agent can
-      // react (e.g. report TESTS_FAILED or fix the build). Throwing here would
-      // surface as a Mastra "Error executing tool" and disrupt the stream.
+      // A non-zero exit (failing tests/build, missing script) is expected for a
+      // coding agent — surface stdout/stderr/exitCode so it can diagnose and
+      // fix, instead of aborting the turn. Timeouts and spawn errors are also
+      // surfaced (with a note) rather than thrown.
+      let stdout = '';
+      let stderr = '';
+      let exitCode = 0;
       try {
-        const { stdout, stderr } = await execFn(command, {
+        const res = await execFn(command, {
           cwd: repoRoot,
           timeout: opts.toolTimeoutMs,
           maxBuffer: 1024 * 1024 * 4,
         });
-        return {
-          ok: true,
-          exitCode: 0,
-          stdout: truncate(stdout, maxOut),
-          stderr: truncate(stderr, maxOut),
-        };
+        stdout = res.stdout;
+        stderr = res.stderr;
       } catch (err) {
         const e = err as {
-          code?: number;
-          killed?: boolean;
-          signal?: string;
           stdout?: string;
           stderr?: string;
+          code?: number | string;
+          signal?: string;
+          killed?: boolean;
           message?: string;
         };
-        if (e.killed || e.signal === 'SIGTERM') {
-          return {
-            ok: false,
-            exitCode: -1,
-            stdout: truncate(e.stdout ?? '', maxOut),
-            stderr: `shell: timed out after ${opts.toolTimeoutMs}ms\n${truncate(e.stderr ?? '', maxOut)}`,
-          };
+        stdout = e.stdout ?? '';
+        stderr = e.stderr ?? '';
+        if (e.killed) {
+          stderr = `${stderr}\n[timed out after ${opts.toolTimeoutMs}ms]`.trim();
+          exitCode = -1;
+        } else if (typeof e.code === 'number') {
+          exitCode = e.code;
+        } else {
+          // Spawn/parse error (e.g. ENOENT). Give the agent a clue.
+          exitCode = -1;
+          if (!stdout && !stderr) {
+            stderr = `shell: failed to run '${command}': ${e.message ?? String(err)}`;
+          }
         }
-        return {
-          ok: false,
-          exitCode: typeof e.code === 'number' ? e.code : -1,
-          stdout: truncate(e.stdout ?? '', maxOut),
-          stderr: truncate(e.stderr ?? e.message ?? String(err), maxOut),
-        };
       }
+      return {
+        stdout: truncate(stdout, maxOut),
+        stderr: truncate(stderr, maxOut),
+        exitCode,
+      };
     },
   });
 
   const gitDiffTool = createTool({
     id: 'git_diff',
-    description: 'Return the current uncommitted diff (git diff HEAD) inside the repo root.',
+    description:
+      'Return the current uncommitted diff inside the repo root, including new (untracked) files. Works in a repo with no commits yet (diffs against the empty tree).',
     inputSchema: z.object({ staged: z.boolean().optional() }),
     execute: async (input) => {
-      const cmd = input.staged ? 'git diff --cached' : 'git diff HEAD';
-      try {
-        const { stdout } = await execFn(cmd, { cwd: repoRoot, timeout: opts.toolTimeoutMs, maxBuffer: 1024 * 1024 * 8 });
-        return { diff: truncate(stdout, maxOut * 4) };
-      } catch (err) {
-        return { diff: '', error: `git_diff: ${err instanceof Error ? err.message : String(err)}` };
+      const run = (cmd: string): Promise<string> =>
+        execFn(cmd, { cwd: repoRoot, timeout: opts.toolTimeoutMs, maxBuffer: 1024 * 1024 * 8 })
+          .then((r) => r.stdout)
+          .catch(() => '');
+      // Diff against HEAD when there are commits; otherwise against git's
+      // well-known empty-tree object (a repo with no commits yet has no HEAD,
+      // and `git diff HEAD` would fatal).
+      const headOk = await execFn('git rev-parse --verify HEAD', {
+        cwd: repoRoot,
+        timeout: opts.toolTimeoutMs,
+      })
+        .then(() => true)
+        .catch(() => false);
+      const base = headOk ? 'HEAD' : '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+      if (input.staged) {
+        const diff = await run(`git diff --cached ${base}`);
+        return { diff: truncate(diff, maxOut * 4) };
       }
+      // `git diff` ignores untracked files by default; mark them intent-to-add
+      // so newly-created files show up. This only records intent in the index
+      // (no content staged); the harness's final `git add -A` converts it to a
+      // real add, and it's reversible with `git reset`.
+      await run('git add -N .');
+      const diff = await run(`git diff ${base}`);
+      return { diff: truncate(diff, maxOut * 4) };
     },
   });
 

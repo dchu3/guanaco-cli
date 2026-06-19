@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "license": "MIT",
   "description": "Interactive CLI for connecting to local LLMs via Ollama. Guanaco is a wild version of Llama.",
-"type": "module",
+  "type": "module",
   "main": "dist/index.js",
   "bin": {
     "guanaco": "bin/guanaco.js"
@@ -17,7 +17,8 @@
     "uninstall:cli": "bash scripts/uninstall.sh",
     "update:cli": "bash scripts/update.sh",
     "test": "vitest run",
-    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\""
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@earendil-works/pi-tui": "^0.74.0",
@@ -34,6 +35,7 @@
     "@typescript-eslint/eslint-plugin": "^7.11.0",
     "@typescript-eslint/parser": "^7.11.0",
     "eslint": "^8.57.0",
+    "patch-package": "^8.0.1",
     "prettier": "^3.3.0",
     "tsx": "^4.11.0",
     "typescript": "^5.4.5",
