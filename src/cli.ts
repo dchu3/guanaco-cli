@@ -231,8 +231,13 @@ export async function startCli(deps: CliDeps): Promise<void> {
 
   function addAgentMessage(role: SdlcRole, content: string): Markdown {
     chatContainer.addChild(new Spacer(1));
+    // An agent that returns no tokens would otherwise render as a bare
+    // `[Role]` header with nothing under it — which looks like a UI bug
+    // (e.g. "I don't see any orchestrator plan above"). Surface the empty
+    // result explicitly so it's diagnosable.
+    const body = content.trim().length > 0 ? content : chalk.dim('_(no output from model)_');
     const msg = new Markdown(
-      `${chalk.bold.magenta(`[${AGENT_LABEL[role]}]`)}\n${content}`,
+      `${chalk.bold.magenta(`[${AGENT_LABEL[role]}]`)}\n${body}`,
       1,
       0,
       MARKDOWN_THEME,
@@ -547,11 +552,13 @@ export async function startCli(deps: CliDeps): Promise<void> {
         addMessage('system', chalk.dim(text));
       },
       onSuspend: async (_reason, ask) => {
+        // The `⚠ Review …` system message above is the cue to type; the input
+        // box is always visible at the bottom, so an extra "Awaiting your
+        // input" status line is just noise. stopSpinner() clears the status
+        // region; we leave it blank while we wait for the user.
         addMessage('system', chalk.bold.yellow(`⚠ ${ask}`));
         stopSpinner();
-        showStatus('Awaiting your input (type below and press Enter)…');
         const answer = await nextInput();
-        clearStatus();
         return answer;
       },
     };
