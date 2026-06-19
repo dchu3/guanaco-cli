@@ -16,6 +16,7 @@ function makeConfig(repoRoot: string, over: Partial<HarnessConfig> = {}): Harnes
     roleModels: {},
     maxReviewCycles: 0,
     maxTestCycles: 0,
+    maxPlanCycles: 0,
     maxAgentSteps: 2,
     humanInLoopFinalize: false,
     humanInLoopIntake: false,
@@ -115,7 +116,6 @@ describe('createSdlcAgents (real Mastra Agent + mock model)', () => {
       expect(res.endReason).toBe('completed');
       expect(res.commit).toBe('cafef00ddeadbeef');
       expect(res.log.map((l) => l.agent)).toEqual([
-        'orchestrator',
         'product',
         'architect',
         'coder',

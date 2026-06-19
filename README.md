@@ -1,6 +1,6 @@
 # guanaco-cli
 
-An **interactive coding harness** built on the [@earendil-works/pi-tui](https://github.com/earendil-works/pi) framework and [Mastra](https://mastra.ai). It connects to **Ollama** models — local or [Ollama Cloud](https://ollama.com/cloud) — and coordinates a team of SDLC-role agents to implement a feature end-to-end: plan → requirements → design → implement → review → test → commit.
+An **interactive coding harness** built on the [@earendil-works/pi-tui](https://github.com/earendil-works/pi) framework and [Mastra](https://mastra.ai). It connects to **Ollama** models — local or [Ollama Cloud](https://ollama.com/cloud) — and coordinates a team of SDLC-role agents to implement a feature end-to-end: plan (product ⇄ architect) → implement → review → test → commit.
 
 Guanaco is a wild version of Llama.
 
@@ -133,13 +133,11 @@ From inside a git repo (the harness operates only within the repo root):
 ```
 
 The harness will:
-1. **Intake** — the Orchestrator decomposes the request into a plan, then (by default) pause for you to confirm or refine. (Agent turns render only their **completed** result, not a live token stream — a spinner + step label shows progress while each agent works.)
-2. **Requirements** — the Product agent writes acceptance criteria.
-3. **Design** — the Architect explores the repo and proposes a change set.
-4. **Implement** — the Coder edits files and runs the build via the `shell` tool.
-5. **Review** — the Reviewer diffs against the design/criteria; on `CHANGES_REQUESTED` it loops back to the Coder (up to `HARNESS_MAX_REVIEW_CYCLES`).
-6. **Test** — the Tester writes/runs tests; on `TESTS_FAILED` it loops back to the Coder (up to `HARNESS_MAX_TEST_CYCLES`).
-7. **Finalize** — the Orchestrator summarizes; with `HARNESS_AUTO_COMMIT=0` (default) it asks for approval, then creates `feature/harness-<slug>` and commits.
+1. **Plan** — the Product agent writes acceptance criteria and the Architect explores the repo and proposes a change set, both derived directly from your feature request. They can iterate (`HARNESS_MAX_PLAN_CYCLES`), then (by default) it pauses for you to confirm or refine the combined plan. (Agent turns render only their **completed** result, not a live token stream — a spinner + step label shows progress while each agent works.)
+2. **Implement** — the Coder edits files and runs the build via the `shell` tool.
+3. **Review** — the Reviewer diffs against the design/criteria; on `CHANGES_REQUESTED` it loops back to the Coder (up to `HARNESS_MAX_REVIEW_CYCLES`).
+4. **Test** — the Tester writes/runs tests; on `TESTS_FAILED` it loops back to the Coder (up to `HARNESS_MAX_TEST_CYCLES`).
+5. **Finalize** — the Orchestrator summarizes; with `HARNESS_AUTO_COMMIT=0` (default) it asks for approval, then creates `feature/harness-<slug>` and commits.
 
 Other commands:
 
@@ -171,6 +169,7 @@ plain exported env vars from your shell profile work too.
 | `HARNESS_MODEL_*`      |          | see defaults             | Per-role model overrides (`_ORCHESTRATOR`, `_PRODUCT`, `_ARCHITECT`, `_CODER`, `_REVIEWER`, `_TESTER`) |
 | `HARNESS_MAX_REVIEW_CYCLES` |     | `2`                      | Max Coder⇄Reviewer loops               |
 | `HARNESS_MAX_TEST_CYCLES`   |     | `2`                      | Max Coder⇄Tester loops                 |
+| `HARNESS_MAX_PLAN_CYCLES`   |     | `0`                      | Max Product⇄Architect plan refinement rounds |
 | `HARNESS_MAX_AGENT_STEPS`  |     | `8`                      | Max tool-loop steps per agent turn     |
 | `HARNESS_AUTO_COMMIT`  |          | `0`                      | `1` = commit without asking            |
 | `HARNESS_HUMAN_IN_LOOP_INTAKE` |  | `1`                      | Pause at intake to confirm the plan    |
@@ -200,7 +199,7 @@ src/
     agents.ts       # SDLC role agents (Mastra Agent) + instructions + AgentLike
     tools.ts        # repo-grounded Mastra tools (read/write/edit/glob/grep/shell/git_diff)
   harness/
-    runner.ts       # HarnessRunner state machine: intake→…→finalize with HITL gates
+    runner.ts       # HarnessRunner state machine: plan→…→finalize with HITL gates
     git.ts          # GitOps (clean-tree guard, branch+commit), slugify
     types.ts        # HarnessHooks, HarnessRunResult, HarnessRunState
   util/log.ts       # debug() helper
