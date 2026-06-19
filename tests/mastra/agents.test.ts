@@ -33,6 +33,7 @@ function makeConfig(repoRoot: string, over: Partial<HarnessConfig> = {}): Harnes
     toolTimeoutMs: 5000,
     repoRoot,
     autoCommit: false,
+    autoStash: true,
     ...over,
   };
 }

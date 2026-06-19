@@ -51,6 +51,10 @@ export interface HarnessConfig {
   repoRoot: string;
   /** When true, the harness may run `git commit` itself after human approval. */
   autoCommit: boolean;
+  /** When true and autoCommit is on, a dirty working tree is auto-stashed
+   *  before the run and restored afterwards instead of hard-blocking with
+   *  'dirty-tree'. Set to 0 to restore the strict "commit/stash first" guard. */
+  autoStash: boolean;
 }
 
 export interface AppConfig {
@@ -186,6 +190,12 @@ export function loadConfig(): AppConfig {
       ? parseBool(autoCommitArg, '--auto-commit')
       : boolEnv('HARNESS_AUTO_COMMIT', true);
 
+  const autoStashArg = getArgValue('--auto-stash');
+  const autoStash =
+    autoStashArg !== undefined
+      ? parseBool(autoStashArg, '--auto-stash')
+      : boolEnv('HARNESS_AUTO_STASH', true);
+
   const harness: HarnessConfig = {
     provider,
     ollamaApiKey,
@@ -203,6 +213,7 @@ export function loadConfig(): AppConfig {
     agentTurnHardTimeoutMs: intEnv('HARNESS_AGENT_HARD_TIMEOUT_MS', 600_000, { min: 0 }),
     repoRoot: process.env.HARNESS_REPO_ROOT?.trim() || process.cwd(),
     autoCommit,
+    autoStash,
   };
 
   return {
