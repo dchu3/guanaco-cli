@@ -9,6 +9,8 @@ function makeConfig(over: Partial<HarnessConfig> = {}): HarnessConfig {
     maxReviewCycles: 2,
     maxTestCycles: 2,
     maxAgentSteps: 4,
+    maxTurnOutputBytes: 1_000_000,
+    maxWallClockMs: 0,
     humanInLoopFinalize: true,
     humanInLoopIntake: true,
     toolTimeoutMs: 5000,

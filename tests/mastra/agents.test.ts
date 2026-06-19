@@ -18,6 +18,8 @@ function makeConfig(repoRoot: string, over: Partial<HarnessConfig> = {}): Harnes
     maxTestCycles: 0,
     maxPlanCycles: 0,
     maxAgentSteps: 2,
+    maxTurnOutputBytes: 1_000_000,
+    maxWallClockMs: 0,
     humanInLoopFinalize: false,
     humanInLoopIntake: false,
     toolTimeoutMs: 5000,

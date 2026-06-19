@@ -111,12 +111,21 @@ describe('buildSdlcTools', () => {
     expect(r.content).toContain('foo = 99');
   });
 
-  it('glob matches patterns and ignores node_modules/.git', async () => {
+  it('glob matches patterns and ignores node_modules/.git/build dirs', async () => {
     await mkdir(join(repo, 'node_modules'), { recursive: true });
+    await mkdir(join(repo, 'dist'), { recursive: true });
     await writeFile(join(repo, 'node_modules', 'skipped.ts'), 'x');
-    const out = await tools().tools.glob.execute({ pattern: '**/*.ts' }, {} as never);
+    await writeFile(join(repo, 'dist', 'skipped.js'), 'x');
+    const out = await tools().tools.glob.execute({ pattern: '**/*.*' }, {} as never);
     expect(out.matches).toContain('src/a.ts');
+    expect(out.matches).toContain('README.md');
     expect(out.matches).not.toContain('node_modules/skipped.ts');
+    expect(out.matches).not.toContain('dist/skipped.js');
+  });
+
+  it('glob supports picomatch patterns like src/**/*.ts', async () => {
+    const out = await tools().tools.glob.execute({ pattern: 'src/**/*.ts' }, {} as never);
+    expect(out.matches).toEqual(['src/a.ts']);
   });
 
   it('grep finds matching lines with file:line', async () => {
@@ -170,6 +179,18 @@ describe('buildSdlcTools', () => {
     const b = await t.execute({ command: 'rm -rf /' }, {} as never);
     expect(b.exitCode).not.toBe(0);
     expect(b.stderr).toMatch(/refused/);
+  });
+
+  it('shell can be cancelled via an abort signal', async () => {
+    const controller = new AbortController();
+    const promise = tools().tools.shell.execute(
+      { command: 'sleep 5' },
+      { abortSignal: controller.signal } as never,
+    );
+    controller.abort();
+    const out = await promise;
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toMatch(/aborted/);
   });
 
   it('tools return an error result (not throw) when called with empty args {}', async () => {

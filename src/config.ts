@@ -24,6 +24,10 @@ export interface HarnessConfig {
   maxPlanCycles: number;
   /** Max agentic tool-loop steps per agent turn. */
   maxAgentSteps: number;
+  /** Max streamed bytes per agent turn before truncation/abort (safety cap). */
+  maxTurnOutputBytes: number;
+  /** Max total wall-clock time for a harness run (ms); 0 disables. */
+  maxWallClockMs: number;
   /** When false, the finalize step auto-commits without asking the human. */
   humanInLoopFinalize: boolean;
   /** When true, the intake step pauses for the human to confirm/refine the feature. */
@@ -37,9 +41,11 @@ export interface HarnessConfig {
    *  `toolTimeoutMs`) is not penalised for being long. Must be greater than
    *  `toolTimeoutMs` so a legitimate tool call isn't mistaken for a stall. */
   agentTurnTimeoutMs?: number;
-  /** Per agent-turn *hard* wall-clock cap (ms); 0 disables (default). Bounds
-   *  a runaway turn that never stalls but never finishes. Distinct from
-   *  `agentTurnTimeoutMs` (inactivity): this one is never reset. */
+  /** Per agent-turn *hard* wall-clock cap (ms); 0 disables. Bounds a runaway
+   *  turn that never stalls but never finishes. Distinct from
+   *  `agentTurnTimeoutMs` (inactivity): this one is never reset.
+   *  Defaults to 10 minutes so a technically-active but never-ending stream is
+   *  always capped unless explicitly disabled. */
   agentTurnHardTimeoutMs?: number;
   /** Repo root the harness is allowed to operate inside. */
   repoRoot: string;
@@ -187,12 +193,14 @@ export function loadConfig(): AppConfig {
     maxReviewCycles: intEnv('HARNESS_MAX_REVIEW_CYCLES', 2, { min: 0, max: 10 }),
     maxTestCycles: intEnv('HARNESS_MAX_TEST_CYCLES', 2, { min: 0, max: 10 }),
     maxPlanCycles: intEnv('HARNESS_MAX_PLAN_CYCLES', 0, { min: 0, max: 5 }),
-    maxAgentSteps: intEnv('HARNESS_MAX_AGENT_STEPS', 8, { min: 1, max: 50 }),
+    maxAgentSteps: intEnv('HARNESS_MAX_AGENT_STEPS', provider === 'local' ? 5 : 8, { min: 1, max: 50 }),
+    maxTurnOutputBytes: intEnv('HARNESS_MAX_TURN_OUTPUT_BYTES', 1_000_000, { min: 1_000 }),
+    maxWallClockMs: intEnv('HARNESS_MAX_WALL_CLOCK_MS', 0, { min: 0 }),
     humanInLoopFinalize: !autoCommit,
     humanInLoopIntake: boolEnv('HARNESS_HUMAN_IN_LOOP_INTAKE', true),
     toolTimeoutMs: intEnv('HARNESS_TOOL_TIMEOUT_MS', 120_000, { min: 1000 }),
     agentTurnTimeoutMs: intEnv('HARNESS_AGENT_TIMEOUT_MS', 300_000, { min: 0 }),
-    agentTurnHardTimeoutMs: intEnv('HARNESS_AGENT_HARD_TIMEOUT_MS', 0, { min: 0 }),
+    agentTurnHardTimeoutMs: intEnv('HARNESS_AGENT_HARD_TIMEOUT_MS', 600_000, { min: 0 }),
     repoRoot: process.env.HARNESS_REPO_ROOT?.trim() || process.cwd(),
     autoCommit,
   };

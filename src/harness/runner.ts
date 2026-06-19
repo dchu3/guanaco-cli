@@ -12,13 +12,19 @@ import type {
 
 const APPROVAL_YES = new Set(['y', 'yes', 'ok', 'okay', 'proceed', 'go', 'approve', 'approved', 'confirm', 'lgtm']);
 
+function truncate(text: string, maxBytes: number): string {
+  const buf = Buffer.from(text, 'utf8');
+  if (buf.length <= maxBytes) return text;
+  return `${buf.subarray(0, maxBytes).toString('utf8')}\n…[truncated ${buf.length - maxBytes} bytes]`;
+}
+
 /** Thrown when an agent turn is stopped — either by the user (Esc) or by the
  * per-turn timeout. `run()` catches it and ends the run with a friendly
  * `endReason` instead of surfacing a raw AbortError. */
 export class HarnessAbortError extends Error {
-  readonly reason: 'user' | 'timeout';
-  constructor(reason: 'user' | 'timeout') {
-    super(reason === 'timeout' ? 'Agent turn timed out' : 'Harness stopped by user');
+  readonly reason: 'user' | 'timeout' | 'output-cap';
+  constructor(reason: 'user' | 'timeout' | 'output-cap') {
+    super(reason === 'output-cap' ? 'Agent turn exceeded the output size limit' : reason === 'timeout' ? 'Agent turn timed out' : 'Harness stopped by user');
     this.name = 'HarnessAbortError';
     this.reason = reason;
   }
@@ -48,6 +54,8 @@ export class HarnessRunner {
   /** Abort signal for the in-flight run (set by `run`); propagated to each
    *  agent stream so Esc can stop the flow mid-turn. */
   private abortSignal?: AbortSignal;
+
+  private runStartedAt = 0;
 
   constructor(opts: HarnessRunnerOptions) {
     this.agents = opts.agents;
@@ -95,6 +103,12 @@ export class HarnessRunner {
     prompt: string,
     recoverOnTimeout = false,
   ): Promise<string> {
+    if (this.cfg.maxWallClockMs && this.cfg.maxWallClockMs > 0) {
+      const elapsed = Date.now() - this.runStartedAt;
+      if (elapsed > this.cfg.maxWallClockMs) {
+        throw new HarnessAbortError('timeout');
+      }
+    }
     this.state.step = step;
     await this.step('start');
     const hasTools = (ROLE_TOOLS[role] as string[]).length > 0;
@@ -104,7 +118,7 @@ export class HarnessRunner {
 
     const abortSignal = this.abortSignal;
     const turnController = new AbortController();
-    let abortReason: 'user' | 'timeout' | undefined;
+    let abortReason: 'user' | 'timeout' | 'output-cap' | undefined;
     let inactivityTimer: NodeJS.Timeout | undefined;
     let hardTimer: NodeJS.Timeout | undefined;
     if (abortSignal) {
@@ -135,6 +149,8 @@ export class HarnessRunner {
     };
     // Hoisted out of `try` so the catch block can recover the partial text
     // on a (recoverable) timeout.
+    const chunks: string[] = [];
+    let byteLength = 0;
     let full = '';
     // Arm the inactivity timer before the stream starts so a model that never
     // emits a first token is still caught.
@@ -149,20 +165,37 @@ export class HarnessRunner {
     try {
       const out = await this.agents[role].stream(prompt, { ...streamOptions, abortSignal: turnController.signal });
       for await (const delta of out.textStream) {
-        full += delta;
+        chunks.push(delta);
+        byteLength += Buffer.byteLength(delta, 'utf8');
         // A real token arrived → the stream isn't stalled; reset the
         // inactivity window. (Hard cap is intentionally NOT reset.)
         armInactivity();
-        await this.hooks.onAgentDelta?.(role, delta, full);
+        await this.hooks.onAgentDelta?.(role, delta, chunks.join(''));
+        if (byteLength > this.cfg.maxTurnOutputBytes) {
+          abortReason = 'output-cap';
+          turnController.abort();
+          await this.info(`${role} turn exceeded max output size (${this.cfg.maxTurnOutputBytes} bytes); stopping.`);
+          break;
+        }
       }
-      const text = (await out.text) || full;
+      full = chunks.join('');
+      let text: string;
+      if (abortReason === 'output-cap') {
+        text = truncate(full, this.cfg.maxTurnOutputBytes);
+      } else {
+        try {
+          text = (await out.text) || full;
+        } catch {
+          text = full;
+        }
+      }
       await this.hooks.onAgentMessage?.(role, text);
       const entry: HarnessLogEntry = { step, agent: role, text };
       this.state.log.push(entry);
       await this.step('end');
       return text;
     } catch (err) {
-      if (abortReason === 'timeout' && recoverOnTimeout) {
+      if ((abortReason === 'timeout' || abortReason === 'output-cap') && recoverOnTimeout) {
         // Keep whatever streamed before the stall and let the caller's loop
         // decide what to do (typically: treat as a failed attempt, retry the
         // next cycle, or proceed to finalize with the work done so far).
@@ -178,11 +211,12 @@ export class HarnessRunner {
     }
   }
 
-  /** Called when a recoverable agent turn times out: surface a warning, log
-   *  the partial text (if any) so it isn't lost, and return it for the caller
-   *  to feed downstream. The underlying stream error is swallowed. */
+  /** Called when a recoverable agent turn is stopped (timeout or output cap):
+   *  surface a warning, log the partial text (if any) so it isn't lost, and
+   *  return it for the caller to feed downstream. The underlying stream error
+   *  is swallowed. */
   private async recoverFromTimeout(role: SdlcRole, step: HarnessStep, partial: string): Promise<string> {
-    await this.info(`${role} turn timed out (inactivity); recovering partial output and continuing.`);
+    await this.info(`${role} turn stopped before completion; recovering partial output and continuing.`);
     if (partial.length > 0) {
       const entry: HarnessLogEntry = { step, agent: role, text: partial };
       this.state.log.push(entry);
@@ -206,13 +240,14 @@ export class HarnessRunner {
       return await this.runBody(featurePrompt);
     } catch (err) {
       if (err instanceof HarnessAbortError) {
-        return this.end(false, err.reason === 'timeout' ? 'timeout' : 'aborted', err.message);
+        return this.end(false, err.reason === 'timeout' || err.reason === 'output-cap' ? 'timeout' : 'aborted', err.message);
       }
       throw err;
     }
   }
 
   private async runBody(featurePrompt: string): Promise<HarnessRunResult> {
+    this.runStartedAt = Date.now();
     this.state.feature = featurePrompt;
 
     // --- Preflight: only commit into a clean git tree so we never bundle the

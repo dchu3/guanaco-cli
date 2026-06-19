@@ -78,6 +78,8 @@ function makeConfig(over: Partial<HarnessConfig> = {}): HarnessConfig {
     maxTestCycles: 2,
     maxPlanCycles: 0,
     maxAgentSteps: 4,
+    maxTurnOutputBytes: 1_000_000,
+    maxWallClockMs: 0,
     humanInLoopFinalize: true,
     humanInLoopIntake: false,
     toolTimeoutMs: 5000,
@@ -422,47 +424,78 @@ describe('HarnessRunner', () => {
     const res = await runner.run('feature');
     expect(res.ok).toBe(true);
     expect(res.endReason).toBe('completed-no-commit');
-    expect(infos.some((t) => /tester turn timed out/.test(t))).toBe(true);
+    expect(infos.some((t) => /tester turn stopped/.test(t))).toBe(true);
   });
 
-  it('inactivity timeout resets on each token, so a slow-but-streaming turn completes', async () => {
-    // The tester streams 6 tokens 25ms apart (≈150ms total). The inactivity
-    // window is 400ms and there is no hard cap. A wall-clock 400ms timeout
-    // would still be fine here, but the point is that the timer resets on each
-    // delta; if it didn't, a long turn would still complete. We assert the
-    // turn's full text is recorded.
-    const tokens = ['## Tests', 'added t', '## Results', 'ok', '## Verdict', 'TESTS_PASSED'];
-    const tester: AgentLike = {
-      id: 'tester',
+  it('stops a streaming turn that exceeds maxTurnOutputBytes and recovers partial text', async () => {
+    const agents = makeAgents();
+    const bigToken = 'x'.repeat(2000);
+    agents.coder = {
+      id: 'coder',
       stream: async () => {
         async function* gen(): AsyncGenerator<string> {
-          for (const tk of tokens) {
-            await new Promise((r) => setTimeout(r, 25));
-            yield tk;
+          for (let i = 0; i < 1000; i++) {
+            yield bigToken;
           }
         }
-        return { textStream: gen(), text: Promise.resolve(tokens.join('')) };
+        return { textStream: gen(), text: Promise.resolve(bigToken.repeat(1000)) };
       },
     };
+    const { git } = makeFakeGit();
+    const infos: string[] = [];
+    const hooks: HarnessHooks = {
+      onSuspend: async () => 'no',
+      onInfo: (t) => void infos.push(t),
+    };
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({
+        autoCommit: false,
+        humanInLoopIntake: false,
+        maxTurnOutputBytes: 5000,
+        maxReviewCycles: 0,
+        maxTestCycles: 0,
+      }),
+      git,
+      hooks,
+    });
+    const res = await runner.run('feature');
+    expect(res.ok).toBe(true);
+    expect(res.endReason).toBe('completed-no-commit');
+    expect(infos.some((t) => /exceeded max output size/.test(t))).toBe(true);
+    const coderEntry = res.log.find((l) => l.agent === 'coder');
+    expect(coderEntry).toBeDefined();
+    expect(Buffer.byteLength(coderEntry!.text, 'utf8')).toBeLessThanOrEqual(5100);
+    expect(coderEntry!.text).toContain('…[truncated');
+  });
+
+  it('aborts the run when the wall-clock budget is exhausted', async () => {
     const agents = makeAgents();
-    agents.tester = tester;
+    // Each agent turn sleeps long enough to blow the 50ms wall-clock budget.
+    const slow: AgentLike = {
+      id: 'product',
+      stream: async () => {
+        async function* gen(): AsyncGenerator<string> {
+          await new Promise((r) => setTimeout(r, 80));
+          yield 'criteria';
+        }
+        return { textStream: gen(), text: Promise.resolve('criteria') };
+      },
+    };
+    agents.product = slow;
     const { git } = makeFakeGit();
     const runner = new HarnessRunner({
       agents,
       config: makeConfig({
         autoCommit: false,
         humanInLoopIntake: false,
-        agentTurnTimeoutMs: 400,
-        agentTurnHardTimeoutMs: 0,
-        maxReviewCycles: 0,
-        maxTestCycles: 0,
+        maxWallClockMs: 50,
       }),
       git,
       hooks: noSuspendHooks,
     });
     const res = await runner.run('feature');
-    expect(res.ok).toBe(true);
-    const testerEntry = res.log.find((l) => l.agent === 'tester');
-    expect(testerEntry?.text).toBe(tokens.join(''));
+    expect(res.ok).toBe(false);
+    expect(res.endReason).toBe('timeout');
   });
 });
