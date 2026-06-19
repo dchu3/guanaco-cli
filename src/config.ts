@@ -184,21 +184,21 @@ export function loadConfig(): AppConfig {
   const autoCommit =
     autoCommitArg !== undefined
       ? parseBool(autoCommitArg, '--auto-commit')
-      : boolEnv('HARNESS_AUTO_COMMIT', false);
+      : boolEnv('HARNESS_AUTO_COMMIT', true);
 
   const harness: HarnessConfig = {
     provider,
     ollamaApiKey,
     roleModels,
-    maxReviewCycles: intEnv('HARNESS_MAX_REVIEW_CYCLES', 2, { min: 0, max: 10 }),
-    maxTestCycles: intEnv('HARNESS_MAX_TEST_CYCLES', 2, { min: 0, max: 10 }),
+    maxReviewCycles: intEnv('HARNESS_MAX_REVIEW_CYCLES', 4, { min: 0, max: 10 }),
+    maxTestCycles: intEnv('HARNESS_MAX_TEST_CYCLES', 4, { min: 0, max: 10 }),
     maxPlanCycles: intEnv('HARNESS_MAX_PLAN_CYCLES', 0, { min: 0, max: 5 }),
-    maxAgentSteps: intEnv('HARNESS_MAX_AGENT_STEPS', provider === 'local' ? 5 : 8, { min: 1, max: 50 }),
+    maxAgentSteps: intEnv('HARNESS_MAX_AGENT_STEPS', 12, { min: 1, max: 50 }),
     maxTurnOutputBytes: intEnv('HARNESS_MAX_TURN_OUTPUT_BYTES', 1_000_000, { min: 1_000 }),
     maxWallClockMs: intEnv('HARNESS_MAX_WALL_CLOCK_MS', 0, { min: 0 }),
     humanInLoopFinalize: !autoCommit,
-    humanInLoopIntake: boolEnv('HARNESS_HUMAN_IN_LOOP_INTAKE', true),
-    toolTimeoutMs: intEnv('HARNESS_TOOL_TIMEOUT_MS', 120_000, { min: 1000 }),
+    humanInLoopIntake: boolEnv('HARNESS_HUMAN_IN_LOOP_INTAKE', false),
+    toolTimeoutMs: intEnv('HARNESS_TOOL_TIMEOUT_MS', 300_000, { min: 1000 }),
     agentTurnTimeoutMs: intEnv('HARNESS_AGENT_TIMEOUT_MS', 300_000, { min: 0 }),
     agentTurnHardTimeoutMs: intEnv('HARNESS_AGENT_HARD_TIMEOUT_MS', 600_000, { min: 0 }),
     repoRoot: process.env.HARNESS_REPO_ROOT?.trim() || process.cwd(),
