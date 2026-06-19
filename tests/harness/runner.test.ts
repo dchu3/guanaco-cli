@@ -256,6 +256,50 @@ describe('HarnessRunner', () => {
     expect(suspendCalls).toBe(2);
   });
 
+  it('does not ask the human to review a plan when the orchestrator produced none', async () => {
+    const agents = makeAgents({ orchestrator: [''] });
+    const { git } = makeFakeGit();
+    const asks: string[] = [];
+    const hooks: HarnessHooks = {
+      onSuspend: async (_reason, prompt) => {
+        asks.push(prompt);
+        return 'ok';
+      },
+    };
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({ autoCommit: false, humanInLoopIntake: true }),
+      git,
+      hooks,
+    });
+    const res = await runner.run('add a thing');
+    expect(res.ok).toBe(true);
+    expect(asks.length).toBeGreaterThan(0);
+    expect(asks[0]).not.toContain('Review the orchestrator plan above');
+    expect(asks[0]).toContain('no plan');
+  });
+
+  it('asks the human to review the plan when the orchestrator produced one', async () => {
+    const agents = makeAgents(); // orchestrator returns 'PLAN'
+    const { git } = makeFakeGit();
+    const asks: string[] = [];
+    const hooks: HarnessHooks = {
+      onSuspend: async (_reason, prompt) => {
+        asks.push(prompt);
+        return 'ok';
+      },
+    };
+    const runner = new HarnessRunner({
+      agents,
+      config: makeConfig({ autoCommit: false, humanInLoopIntake: true }),
+      git,
+      hooks,
+    });
+    await runner.run('add a thing');
+    expect(asks.length).toBeGreaterThan(0);
+    expect(asks[0]).toContain('Review the orchestrator plan above');
+  });
+
   it('commits only after human approval when autoCommit is false', async () => {
     const agents = makeAgents();
     const { git, cmds } = makeFakeGit();

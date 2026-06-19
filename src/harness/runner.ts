@@ -241,10 +241,14 @@ export class HarnessRunner {
 
     let confirmed = featurePrompt;
     if (this.cfg.humanInLoopIntake) {
-      const answer = await this.suspend(
-        'intake',
-        'Review the orchestrator plan above. Reply "ok" to proceed, or describe refinements.',
-      );
+      // Don't tell the human to review a plan that isn't there. Keep the gate
+      // (they can still refine the feature) but phrase it honestly when the
+      // orchestrator returned empty output.
+      const hasPlan = plan.trim().length > 0;
+      const ask = hasPlan
+        ? 'Review the orchestrator plan above. Reply "ok" to proceed, or describe refinements.'
+        : 'The orchestrator produced no plan (empty output). Reply "ok" to proceed with just the feature request, or describe what you want built.';
+      const answer = await this.suspend('intake', ask);
       const trimmed = answer.trim();
       if (trimmed && !APPROVAL_YES.has(trimmed.toLowerCase())) {
         confirmed = `${featurePrompt}\n\nHuman refinement: ${trimmed}`;
