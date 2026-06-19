@@ -4,13 +4,14 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import type { HarnessConfig, SdlcRole } from '../config.js';
 
 /**
- * Default model per SDLC role. Coding-heavy roles prefer a coder-tuned model
- * when nothing is configured. These are only defaults; any can be overridden
- * via HARNESS_MODEL_<ROLE> / --<role>-model.
+ * Default model per SDLC role. Aggressive local defaults put every role on a
+ * capable coder-tuned model so small-model agents have enough capacity for
+ * planning, implementation, review, and test. These are only defaults; any can
+ * be overridden via HARNESS_MODEL_<ROLE> / --<role>-model.
  */
 export const DEFAULT_ROLE_MODELS: Record<SdlcRole, string> = {
-  orchestrator: 'qwen3.5:0.8b',
-  product: 'qwen3.5:0.8b',
+  orchestrator: 'qwen2.5-coder:7b',
+  product: 'qwen2.5-coder:7b',
   architect: 'qwen2.5-coder:7b',
   coder: 'qwen2.5-coder:7b',
   reviewer: 'qwen2.5-coder:7b',
