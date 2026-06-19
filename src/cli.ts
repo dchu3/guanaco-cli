@@ -530,25 +530,18 @@ export async function startCli(deps: CliDeps): Promise<void> {
     addMessage('user', `/feature ${prompt}`);
     startSpinner('Starting SDLC harness…');
 
-    let currentMsg: Markdown | undefined;
-
     const hooks: HarnessHooks = {
       onStep: (step, phase) => {
         startSpinner(`${phase === 'start' ? '▶' : '✔'} ${STEP_LABEL[step]}`);
       },
-      onAgentDelta: (role, _delta, full) => {
-        if (!currentMsg) currentMsg = addAgentMessage(role, full);
-        else currentMsg.setText(`${chalk.bold.magenta(`[${AGENT_LABEL[role]}]`)}\n${full}`);
-        renderChat();
-      },
+      // NOTE: intentionally no `onAgentDelta` hook — agent "thinking" is NOT
+      // streamed to the console. The runner still emits deltas (useful for
+      // logs/debug/abort), but we only render the completed result once the
+      // turn finishes, via `onAgentMessage`. While an agent works the user just
+      // sees the spinner + step label from `onStep`.
       onAgentMessage: (role, text) => {
-        if (currentMsg) {
-          currentMsg.setText(`${chalk.bold.magenta(`[${AGENT_LABEL[role]}]`)}\n${text}`);
-        } else {
-          currentMsg = addAgentMessage(role, text);
-        }
+        addAgentMessage(role, text);
         renderChat();
-        currentMsg = undefined;
       },
       onInfo: (text) => {
         addMessage('system', chalk.dim(text));
