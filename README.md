@@ -10,7 +10,8 @@ A **starter template for building local-first, Ollama-powered command-line apps 
 - **Streaming responses** rendered incrementally as the model emits tokens. Press **Esc** to stop a generation and get the prompt back.
 - **Slash commands**: `/help`, `/clear`, `/model <name>`, `/log`, `/exit`, `/quit` (with a fuzzy autocomplete dropdown when you type `/`).
 - **Shell passthrough**: type `!<command>` to run a shell command inline.
-- **Config via `.env`** in the project directory, with CLI-flag overrides (`--model`, `--temperature`, `--top-p`, `--num-ctx`).
+- **Config via `.env`** in the project directory, with CLI-flag overrides (`--model`, `--temperature`, `--top-p`, `--num-ctx`, `--num-predict`, `--think`/`--no-think`). A `SYSTEM_PROMPT` is prepended to every chat when set.
+- **Clean chat output**: `OLLAMA_THINK=0` (default) suppresses qwen3-style `imd…` reasoning blocks; set `OLLAMA_THINK=1` or pass `--think` to surface them.
 - **Generic Ollama client** with optional tool-calling loop — extend `src/tools.ts` to give the model tools.
 - **File-backed debug log** + in-app `/log` so errors the TUI overwrites on screen are recoverable.
 - **Input history**: press Up/Down arrow to recall previous prompts (in-memory, most-recent-first).

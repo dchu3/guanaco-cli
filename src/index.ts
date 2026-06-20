@@ -41,10 +41,13 @@ async function main(): Promise<void> {
     baseUrl: cfg.ollamaBaseUrl,
     model: cfg.ollamaModel,
     timeoutMs: cfg.requestTimeoutMs,
+    systemPrompt: cfg.systemPrompt,
+    think: cfg.think,
     modelOptions: {
       temperature: cfg.temperature,
       top_p: cfg.topP,
       num_ctx: cfg.numCtx,
+      ...(cfg.numPredict !== undefined ? { num_predict: cfg.numPredict } : {}),
     },
   });
 
