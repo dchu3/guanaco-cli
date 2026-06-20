@@ -5,16 +5,7 @@ describe('COMMANDS catalogue', () => {
   it('contains the expected command names', () => {
     const names = COMMANDS.map((c) => c.name);
     expect(names).toEqual(
-      expect.arrayContaining([
-        '/feature',
-        '/agents',
-        '/harness-status',
-        '/help',
-        '/clear',
-        '/model',
-        '/exit',
-        '/quit',
-      ]),
+      expect.arrayContaining(['/help', '/clear', '/model', '/log', '/exit', '/quit']),
     );
   });
 
@@ -55,7 +46,7 @@ describe('isBareSlash', () => {
 
   it('returns false for a real command', () => {
     expect(isBareSlash('/help')).toBe(false);
-    expect(isBareSlash('/feature do something')).toBe(false);
+    expect(isBareSlash('/model llama3.2')).toBe(false);
   });
 
   it('returns false for empty input', () => {

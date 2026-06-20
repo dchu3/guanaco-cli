@@ -2,8 +2,6 @@ import { loadConfig } from './config.js';
 import { OllamaClient } from './ollama.js';
 import { startCli } from './cli.js';
 import { buildToolRegistry } from './tools.js';
-import { buildSdlcAgentsFromConfig } from './mastra/index.js';
-import { GitOps } from './harness/git.js';
 import { getVersion, wantsVersion } from './version.js';
 import { captureStderr, getLogFile, logError, logInfo, logPathIsInside } from './util/log.js';
 
@@ -29,8 +27,8 @@ async function main(): Promise<void> {
   installGlobalErrorCapture();
 
   const argv = process.argv.slice(2);
-  // Fast-path: print version and exit before constructing Ollama/Mastra so
-  // `guanaco --version` works from any folder without a running Ollama.
+  // Fast-path: print version and exit before constructing the Ollama client so
+  // `ollama-cli --version` works from any folder without a running Ollama.
   if (wantsVersion(argv)) {
     // eslint-disable-next-line no-console
     console.log(getVersion());
@@ -52,14 +50,8 @@ async function main(): Promise<void> {
 
   const tools = buildToolRegistry({});
 
-  // SDLC harness: Mastra agents + tools, coordinated by HarnessRunner.
-  const harnessAgents = buildSdlcAgentsFromConfig(cfg);
-  const gitOps = new GitOps({ repoRoot: cfg.harness.repoRoot });
-
   // eslint-disable-next-line no-console
-  console.log(
-    `guanaco-cli · model=${cfg.ollamaModel} · ollama=${cfg.ollamaBaseUrl} · harness=${cfg.harness.provider}`,
-  );
+  console.log(`ollama-cli · model=${cfg.ollamaModel} · ollama=${cfg.ollamaBaseUrl}`);
   const logFile = getLogFile();
   if (logFile) {
     // eslint-disable-next-line no-console
@@ -67,10 +59,10 @@ async function main(): Promise<void> {
     if (logPathIsInside()) {
       // eslint-disable-next-line no-console
       console.warn(
-        `warning: GUANACO_LOG_FILE resolves inside the current repo — log entries may be committed. Use an absolute path outside the repo (or unset GUANACO_LOG_FILE for the default ~/.guanaco/logs/debug.log).`,
+        `warning: OLLAMA_CLI_LOG_FILE resolves inside the current repo — log entries may be committed. Use an absolute path outside the repo (or unset OLLAMA_CLI_LOG_FILE for the default ~/.ollama-cli/logs/debug.log).`,
       );
     }
-    logInfo('startup', `guanaco-cli model=${cfg.ollamaModel} harness=${cfg.harness.provider}`);
+    logInfo('startup', `ollama-cli model=${cfg.ollamaModel} ollama=${cfg.ollamaBaseUrl}`);
   }
 
   const shutdown = (signal: string) => () => {
@@ -86,9 +78,6 @@ async function main(): Promise<void> {
     ollama,
     tools,
     streamEnabled: cfg.streamEnabled,
-    harnessAgents,
-    harnessConfig: cfg.harness,
-    gitOps,
   });
 }
 

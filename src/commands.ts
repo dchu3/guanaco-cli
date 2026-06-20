@@ -6,30 +6,15 @@
  */
 
 export interface CommandSpec {
-  /** The literal command token, e.g. `/feature`. */
+  /** The literal command token, e.g. `/model`. */
   name: string;
-  /** Usage placeholder for arguments, e.g. `<prompt>`; empty if no args. */
+  /** Usage placeholder for arguments, e.g. `<name>`; empty if no args. */
   args: string;
   /** One-line summary shown in the catalogue. */
   description: string;
 }
 
 export const COMMANDS: CommandSpec[] = [
-  {
-    name: '/feature',
-    args: '<prompt>',
-    description: 'run the SDLC harness to implement a feature',
-  },
-  {
-    name: '/agents',
-    args: '',
-    description: 'list the SDLC agents and their models',
-  },
-  {
-    name: '/harness-status',
-    args: '',
-    description: 'show the current/last harness run state',
-  },
   {
     name: '/log',
     args: '',

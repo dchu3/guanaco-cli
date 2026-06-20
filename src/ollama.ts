@@ -66,14 +66,14 @@ interface OllamaStreamChunk {
 const DEFAULT_MAX_TOOL_STEPS = 3;
 
 export class OllamaClient {
-  private readonly baseUrl: string;
+  private readonly baseUrlValue: string;
   private model: string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
   private readonly modelOptions?: Record<string, unknown>;
 
   constructor(opts: OllamaClientOptions) {
-    this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
+    this.baseUrlValue = opts.baseUrl.replace(/\/+$/, '');
     this.model = opts.model;
     this.timeoutMs = opts.timeoutMs;
     this.fetchImpl = opts.fetchImpl ?? fetch;
@@ -82,6 +82,11 @@ export class OllamaClient {
 
   get currentModel(): string {
     return this.model;
+  }
+
+  /** Public read-only access to the configured base URL (for display). */
+  get baseUrl(): string {
+    return this.baseUrlValue;
   }
 
   setModel(model: string): void {
@@ -176,7 +181,7 @@ export class OllamaClient {
     messages: Message[],
     tools: ToolDefinition[] | undefined,
   ): Promise<{ content: string; tool_calls?: ToolCall[] }> {
-    const url = `${this.baseUrl}/api/chat`;
+    const url = `${this.baseUrlValue}/api/chat`;
     const payload: Record<string, unknown> = {
       model: this.model,
       messages,
@@ -235,7 +240,7 @@ export class OllamaClient {
     tools: ToolDefinition[] | undefined,
     options: ChatOptions,
   ): Promise<{ content: string; tool_calls?: ToolCall[] }> {
-    const url = `${this.baseUrl}/api/chat`;
+    const url = `${this.baseUrlValue}/api/chat`;
     const payload: Record<string, unknown> = {
       model: this.model,
       messages,

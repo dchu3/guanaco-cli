@@ -24,8 +24,8 @@ const plainTheme: MarkdownTheme = {
 function buildRegions(): ChatRegions {
   const header = new Container();
   header.addChild(new Spacer(1));
-  header.addChild(new Text('  Guanaco CLI · SDLC harness', 1, 0));
-  header.addChild(new Text('  Model: llama3.2 · provider: local', 1, 0));
+  header.addChild(new Text('  Ollama CLI', 1, 0));
+  header.addChild(new Text('  Model: llama3.2', 1, 0));
   header.addChild(new Spacer(1));
 
   const chat = new Container();

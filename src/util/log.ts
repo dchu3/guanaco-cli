@@ -6,28 +6,28 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
  * File-backed debug logging for a TUI app.
  *
  * The TUI (pi-tui) owns stdout via synchronized differential rendering, so
- * anything written to stdout/stderr mid-session — including errors from
- * Node, Mastra, or pi-tui itself — flashes briefly and is then overwritten by
- * the next render, making them impossible to copy. To fix that, every log
- * line is appended to a persistent file (default `~/.guanaco/logs/debug.log`,
- * or `GUANACO_LOG_FILE`), and `captureStderr()` tees `process.stderr` into the
- * same file so console errors are recovered later via `/log` or by opening the
- * file directly.
+ * anything written to stdout/stderr mid-session — including errors from Node
+ * or pi-tui itself — flashes briefly and is then overwritten by the next
+ * render, making them impossible to copy. To fix that, every log line is
+ * appended to a persistent file (default `~/.ollama-cli/logs/debug.log`, or
+ * `OLLAMA_CLI_LOG_FILE`), and `captureStderr()` tees `process.stderr` into
+ * the same file so console errors are recovered later via `/log` or by
+ * opening the file directly.
  */
 
 const DEBUG_TRUTHY = new Set(['1', 'true', 'yes', 'on']);
 const debugEnabled = DEBUG_TRUTHY.has((process.env.DEBUG ?? '').trim().toLowerCase());
 
-/** Resolve the log file path from GUANACO_LOG_FILE or the default location. */
+/** Resolve the log file path from OLLAMA_CLI_LOG_FILE or the default location. */
 function resolveLogFile(): string | undefined {
-  const fromEnv = process.env.GUANACO_LOG_FILE;
+  const fromEnv = process.env.OLLAMA_CLI_LOG_FILE;
   if (fromEnv && fromEnv.trim()) {
     const p = fromEnv.trim();
     return isAbsolute(p) ? p : resolve(p);
   }
   const home = homedir();
   if (!home) return undefined;
-  return join(home, '.guanaco', 'logs', 'debug.log');
+  return join(home, '.ollama-cli', 'logs', 'debug.log');
 }
 
 const dirsEnsured = new Set<string>();
@@ -96,7 +96,7 @@ export function logError(scope: string, ...args: unknown[]): void {
 }
 
 /**
- * Tee `process.stderr` into the log file so messages printed by Node/Mastra/
+ * Tee `process.stderr` into the log file so messages printed by Node or
  * pi-tui are persisted instead of flashing and being overwritten by the TUI.
  * The original stderr still receives the bytes (so they still appear briefly
  * on screen), but they're now recoverable from the log.
@@ -151,7 +151,7 @@ export function logSizeBytes(): number {
 }
 
 /** True when the resolved log file lives inside `dir` (default: cwd). Used to
- * warn the user that logs may get committed if they pointed GUANACO_LOG_FILE at
+ * warn the user that logs may get committed if they pointed OLLAMA_CLI_LOG_FILE at
  * a path inside the repo. The default home-relative path is never inside cwd. */
 export function logPathIsInside(dir: string = process.cwd()): boolean {
   const file = resolveLogFile();
