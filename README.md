@@ -13,6 +13,7 @@ A **starter template for building local-first, Ollama-powered command-line apps 
 - **Config via `.env`** in the project directory, with CLI-flag overrides (`--model`, `--temperature`, `--top-p`, `--num-ctx`).
 - **Generic Ollama client** with optional tool-calling loop — extend `src/tools.ts` to give the model tools.
 - **File-backed debug log** + in-app `/log` so errors the TUI overwrites on screen are recoverable.
+- **Input history**: press Up/Down arrow to recall previous prompts (in-memory, most-recent-first).
 - **`--version` fast-path** that works without a running Ollama.
 - **Tooling wired up**: TypeScript, Vitest, ESLint, Prettier.
 
