@@ -3,6 +3,6 @@ dist/
 .env
 .env.local
 *.log
-.ollama-cli/
+.guanaco-cli/
 .DS_Store
 coverage/

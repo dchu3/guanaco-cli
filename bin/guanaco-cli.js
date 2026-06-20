@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `ollama-cli` global entry point.
+ * `guanaco-cli` global entry point.
  *
  * Runs the compiled app (`dist/index.js`), loading `.env` from the current
  * working directory. Extra CLI args (`--version`, `--model`, etc.) are
@@ -18,8 +18,8 @@ const args = process.argv.slice(2);
 if (!existsSync(entry)) {
   // eslint-disable-next-line no-console
   console.error(
-    `ollama-cli: compiled app not found at ${entry}\n` +
-      `Run "npm run build" in the ollama-cli-template package.`,
+    `guanaco-cli: compiled app not found at ${entry}\n` +
+      `Run "npm run build" in the guanaco-cli-template package.`,
   );
   process.exit(1);
 }

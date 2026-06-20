@@ -1,6 +1,8 @@
-# Ollama CLI Template
+# Guanaco CLI Template
 
 A **starter template for building local-first, Ollama-powered command-line apps in TypeScript** — a polished terminal UI, streaming responses, config/env handling, and a slash-command shell. Bring your own Ollama model and start building.
+
+**Not affiliated with Ollama.** Guanaco CLI is an independent, community template that connects to Ollama running on your machine.
 
 ## Features
 
@@ -71,13 +73,13 @@ npm start -- --temperature 0.3 --top-p 0.95
 Click GitHub's **"Use this template"** button on the repo page, or with the GitHub CLI:
 
 ```bash
-gh repo create --template <owner>/ollama-cli-template my-app
+gh repo create --template <owner>/guanaco-cli-template my-app
 cd my-app
 npm install
 npm run dev
 ```
 
-For a global `ollama-cli` command from your checkout:
+For a global `guanaco-cli` command from your checkout:
 
 ```bash
 npm run build
@@ -86,7 +88,7 @@ npm link            # may need a user-owned npm prefix
 
 ## Template customization checklist
 
-- [ ] **Rename the app**: update `package.json` (`name`, `bin`, `description`); rename `bin/ollama-cli.js` and its error strings; update the header text in `src/cli.ts`; update the startup line in `src/index.ts`; update the log-file env var + default dir in `src/util/log.ts` (`OLLAMA_CLI_LOG_FILE`, `~/.ollama-cli`); update `.gitignore` (`.ollama-cli/`).
+- [ ] **Rename the app**: update `package.json` (`name`, `bin`, `description`); rename `bin/guanaco-cli.js` and its error strings; update the header text in `src/cli.ts`; update the startup line in `src/index.ts`; update the log-file env var + default dir in `src/util/log.ts` (`GUANACO_CLI_LOG_FILE`, `~/.guanaco-cli`); update `.gitignore` (`.guanaco-cli/`).
 - [ ] **Pick a default model** in `.env.example` and in `src/config.ts` (the `OLLAMA_MODEL` fallback).
 - [ ] **Add your own slash commands** in `src/commands.ts` and dispatch them in the `while (true)` loop in `src/cli.ts`.
 - [ ] **Add tools** to `src/tools.ts` (`buildToolRegistry`) and pass them to `ollama.chat(messages, { tools })` in the chat turn in `src/cli.ts`.
@@ -107,7 +109,7 @@ src/
   version.ts        # read version from package.json
   ui/layout.ts      # stacked-region layout (header/chat/status/filler/editor/footer)
   util/log.ts       # file-backed debug log + stderr tee + /log
-bin/ollama-cli.js   # launcher: loads <cwd>/.env, forwards to dist/index.js
+bin/guanaco-cli.js   # launcher: loads <cwd>/.env, forwards to dist/index.js
 ```
 
 ## Scripts

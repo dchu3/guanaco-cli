@@ -77,7 +77,7 @@ function buildApp(rows: number): { ui: TUI; term: MockTerminal; regions: ChatReg
 
   // Header (mirrors cli.renderHeader)
   header.addChild(new Spacer(1));
-  header.addChild(new Text(chalk.bold.cyan('  Ollama CLI'), 1, 0));
+  header.addChild(new Text(chalk.bold.cyan('  Guanaco CLI'), 1, 0));
   header.addChild(new Text(chalk.dim('  Model: llama3.2'), 1, 0));
   header.addChild(new Spacer(1));
 
@@ -130,7 +130,7 @@ function buildAppWithEditor(
   ui.setFocus(editor);
 
   header.addChild(new Spacer(1));
-  header.addChild(new Text(chalk.bold.cyan('  Ollama CLI'), 1, 0));
+  header.addChild(new Text(chalk.bold.cyan('  Guanaco CLI'), 1, 0));
   header.addChild(new Text(chalk.dim('  Model: llama3.2'), 1, 0));
   header.addChild(new Spacer(1));
 
@@ -166,7 +166,7 @@ describe('CLI viewport integration (TUI + trimChatToFit)', () => {
 
     // The visible viewport is the bottom `rows` lines; the header must still be in it.
     const viewport = lines.slice(-rows);
-    expect(viewport.some((l) => l.includes('Ollama CLI'))).toBe(true);
+    expect(viewport.some((l) => l.includes('Guanaco CLI'))).toBe(true);
     // And the editor is still visible too.
     expect(viewport.some((l) => l.includes('[editor]'))).toBe(true);
     // No forced clear-screen was emitted on incremental renders.
