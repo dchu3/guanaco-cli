@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { OllamaClient } from '../src/ollama.js';
+import { OllamaClient, OllamaAbortError } from '../src/ollama.js';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -475,6 +475,50 @@ describe('OllamaClient', () => {
         ['', true],
         ['final answer', false],
       ]);
+    });
+
+    it('rejects with OllamaAbortError when the abort signal fires mid-stream', async () => {
+      const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+        const signal = init?.signal as AbortSignal;
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(
+              encoder.encode('{"message":{"role":"assistant","content":"par"},"done":false}\n'),
+            );
+            signal.addEventListener('abort', () => {
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              controller.error(err);
+            });
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'application/x-ndjson' },
+        });
+      }) as unknown as typeof fetch;
+
+      const client = new OllamaClient({
+        baseUrl: 'http://localhost:11434',
+        model: 'm',
+        timeoutMs: 5_000,
+        fetchImpl: fetchMock,
+      });
+
+      const controller = new AbortController();
+      const deltas: string[] = [];
+      const promise = client.chat([{ role: 'user', content: 'x' }], {
+        abortSignal: controller.signal,
+        onAssistantDelta: (chunk) => {
+          deltas.push(chunk);
+        },
+      });
+      // Let the first delta land, then abort.
+      await new Promise((r) => setTimeout(r, 20));
+      controller.abort('user');
+      await expect(promise).rejects.toBeInstanceOf(OllamaAbortError);
+      expect(deltas).toEqual(['par']); // partial content was delivered before the abort
     });
 
     it('throws on non-OK streaming response', async () => {

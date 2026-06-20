@@ -7,7 +7,7 @@ A **starter template for building local-first, Ollama-powered command-line apps 
 ## Features
 
 - **Polished TUI** (built on [`@earendil-works/pi-tui`](https://github.com/earendil-works/pi)): pinned header, bottom-anchored input box, auto-trimming scrolling chat, animated spinner, and a PWD + git-branch footer.
-- **Streaming responses** rendered incrementally as the model emits tokens.
+- **Streaming responses** rendered incrementally as the model emits tokens. Press **Esc** to stop a generation and get the prompt back.
 - **Slash commands**: `/help`, `/clear`, `/model <name>`, `/log`, `/exit`, `/quit` (with a fuzzy autocomplete dropdown when you type `/`).
 - **Shell passthrough**: type `!<command>` to run a shell command inline.
 - **Config via `.env`** in the project directory, with CLI-flag overrides (`--model`, `--temperature`, `--top-p`, `--num-ctx`).

@@ -42,6 +42,9 @@ export interface ChatOptions {
   // consumer flush a final edit and decide whether the next turn should
   // start a new message (e.g. when tool_calls follow).
   onAssistantTurnEnd?: (full: string, hasToolCalls: boolean) => void | Promise<void>;
+  // When provided, aborts the in-flight request when the signal fires (e.g.
+  // the user pressing Esc). The client rejects with `OllamaAbortError`.
+  abortSignal?: AbortSignal;
 }
 
 interface OllamaChatResponse {
@@ -64,6 +67,16 @@ interface OllamaStreamChunk {
 }
 
 const DEFAULT_MAX_TOOL_STEPS = 3;
+
+/** Thrown when a chat request is aborted via `ChatOptions.abortSignal` (e.g.
+ *  the user pressed Esc). Distinct from a timeout/network error so callers can
+ *  surface a friendly "stopped" message instead of an error. */
+export class OllamaAbortError extends Error {
+  constructor(message = 'aborted') {
+    super(message);
+    this.name = 'OllamaAbortError';
+  }
+}
 
 export class OllamaClient {
   private readonly baseUrlValue: string;
@@ -108,7 +121,7 @@ export class OllamaClient {
       const definitionsForStep = onFinalStep ? undefined : tools?.definitions;
       const reply = options.onAssistantDelta
         ? await this.chatOnceStreaming(working, definitionsForStep, options)
-        : await this.chatOnce(working, definitionsForStep);
+        : await this.chatOnce(working, definitionsForStep, options.abortSignal);
       const toolCalls =
         !onFinalStep && tools
           ? (reply.tool_calls ?? extractInlineToolCalls(reply.content))
@@ -180,6 +193,7 @@ export class OllamaClient {
   private async chatOnce(
     messages: Message[],
     tools: ToolDefinition[] | undefined,
+    abortSignal?: AbortSignal,
   ): Promise<{ content: string; tool_calls?: ToolCall[] }> {
     const url = `${this.baseUrlValue}/api/chat`;
     const payload: Record<string, unknown> = {
@@ -193,6 +207,11 @@ export class OllamaClient {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const onAbort = () => controller.abort();
+    if (abortSignal) {
+      if (abortSignal.aborted) controller.abort();
+      else abortSignal.addEventListener('abort', onAbort, { once: true });
+    }
 
     try {
       const res = await this.fetchImpl(url, {
@@ -221,6 +240,7 @@ export class OllamaClient {
       }
       return { content, tool_calls: toolCalls };
     } catch (err) {
+      if (abortSignal?.aborted) throw new OllamaAbortError('aborted');
       if (err instanceof Error && err.name === 'AbortError') {
         throw new Error(`Ollama request timed out after ${this.timeoutMs}ms`);
       }
@@ -228,6 +248,7 @@ export class OllamaClient {
       throw err;
     } finally {
       clearTimeout(timer);
+      if (abortSignal) abortSignal.removeEventListener('abort', onAbort);
     }
   }
 
@@ -257,6 +278,13 @@ export class OllamaClient {
       idleTimer = setTimeout(() => controller.abort(), this.timeoutMs);
     };
     resetIdleTimer();
+    // Link the caller-supplied abort signal (e.g. Esc) to the fetch controller.
+    const abortSignal = options.abortSignal;
+    const onAbort = () => controller.abort();
+    if (abortSignal) {
+      if (abortSignal.aborted) controller.abort();
+      else abortSignal.addEventListener('abort', onAbort, { once: true });
+    }
 
     try {
       const res = await this.fetchImpl(url, {
@@ -364,6 +392,7 @@ export class OllamaClient {
       }
       return { content, tool_calls: toolCalls };
     } catch (err) {
+      if (abortSignal?.aborted) throw new OllamaAbortError('aborted');
       if (err instanceof Error && err.name === 'AbortError') {
         throw new Error(`Ollama request timed out after ${this.timeoutMs}ms`);
       }
@@ -371,6 +400,7 @@ export class OllamaClient {
       throw err;
     } finally {
       if (idleTimer) clearTimeout(idleTimer);
+      if (abortSignal) abortSignal.removeEventListener('abort', onAbort);
     }
   }
 }

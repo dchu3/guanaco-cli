@@ -16,7 +16,7 @@ import {
   type EditorTheme,
 } from '@earendil-works/pi-tui';
 import chalk from 'chalk';
-import type { OllamaClient } from './ollama.js';
+import { OllamaAbortError, type OllamaClient } from './ollama.js';
 import type { ToolRegistry } from './tools.js';
 import { layoutToFit, type ChatRegions } from './ui/layout.js';
 import { COMMANDS, formatCommandList, isBareSlash } from './commands.js';
@@ -282,6 +282,22 @@ export async function startCli(deps: CliDeps): Promise<void> {
     return undefined;
   });
 
+  // Abort controller for the in-flight chat request; Esc aborts it so the user
+  // can stop a long/slow generation and get the prompt back without quitting.
+  // Let the editor keep Esc when its autocomplete dropdown is open (it closes
+  // the dropdown); only abort when a chat is active. Input listeners run before
+  // the focused component and `consume: true` stops the editor from also
+  // processing the key.
+  let activeChatAbort: AbortController | undefined;
+  ui.addInputListener((data) => {
+    if (!matchesKey(data, 'escape')) return undefined;
+    if (editor.isShowingAutocomplete()) return undefined;
+    if (!activeChatAbort) return undefined;
+    activeChatAbort.abort('user');
+    showStatus('Stopping…');
+    return { consume: true };
+  });
+
   // Initial footer (PWD + git branch) below the input box.
   void refreshFooter();
 
@@ -357,9 +373,12 @@ export async function startCli(deps: CliDeps): Promise<void> {
     const assistantMsg = addMessage('assistant', '...');
     let fullResponse = '';
 
+    const abort = new AbortController();
+    activeChatAbort = abort;
     try {
-      startSpinner('Thinking…');
+      startSpinner('Thinking…  (Esc to stop)');
       const response = await deps.ollama.chat([{ role: 'user', content: trimmed }], {
+        abortSignal: abort.signal,
         onAssistantDelta: (chunk) => {
           fullResponse += chunk;
           assistantMsg.setText(`${chalk.bold.cyan('Assistant: ')}\n${fullResponse}`);
@@ -371,14 +390,25 @@ export async function startCli(deps: CliDeps): Promise<void> {
         assistantMsg.setText(`${chalk.bold.cyan('Assistant: ')}\n${response}`);
         renderChat();
       }
-      stopSpinner();
     } catch (err) {
-      logError('chat', err);
+      if (err instanceof OllamaAbortError) {
+        // User pressed Esc: keep whatever streamed so far, surface a friendly
+        // note, and hand the prompt back.
+        if (fullResponse.trim().length === 0) {
+          assistantMsg.setText(`${chalk.bold.cyan('Assistant: ')}\n${chalk.dim('(stopped)')}`);
+          renderChat();
+        }
+        showStatus('Stopped.');
+      } else {
+        logError('chat', err);
+        statusContainer.addChild(
+          new Text(chalk.red(`Error: ${err instanceof Error ? err.message : String(err)}`), 1, 0),
+        );
+        renderChat();
+      }
+    } finally {
       stopSpinner();
-      statusContainer.addChild(
-        new Text(chalk.red(`Error: ${err instanceof Error ? err.message : String(err)}`), 1, 0),
-      );
-      renderChat();
+      activeChatAbort = undefined;
     }
   }
 
