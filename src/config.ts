@@ -57,7 +57,7 @@ function getArgValue(flag: string): string | undefined {
 }
 
 export function loadConfig(): AppConfig {
-  let ollamaModel = process.env.OLLAMA_MODEL?.trim() || 'qwen2.5:3b';
+  let ollamaModel = process.env.OLLAMA_MODEL?.trim() || 'qwen2.5:0.5b';
 
   const modelArg = getArgValue('--model');
   if (modelArg) {
