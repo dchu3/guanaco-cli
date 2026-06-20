@@ -23,7 +23,7 @@ A **starter template for building local-first, Ollama-powered command-line apps 
 2. **Ollama** running locally, with at least one model pulled:
    ```bash
    ollama serve                       # starts the server on http://localhost:11434
-   ollama pull qwen2.5:3b             # (or any model you like)
+   ollama pull qwen2.5:0.5b           # default model (or any model you like)
    ```
 
 ## Quick start
