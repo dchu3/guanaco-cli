@@ -7,11 +7,33 @@ export interface AppConfig {
   temperature?: number;
   topP?: number;
   numCtx?: number;
+  // When true, ask Ollama to emit the model's reasoning (qwen3 `imd…` blocks).
+  // Defaults to false so chat output stays clean. Requires Ollama >= 0.9.
+  think: boolean;
+  // Optional cap on generated tokens per reply.
+  numPredict?: number;
 }
 
 function intEnv(name: string, def: number, opts: { min?: number; max?: number } = {}): number {
   const raw = process.env[name];
   if (raw === undefined || raw === '') return def;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) {
+    throw new Error(`Env var ${name} must be an integer, got: ${raw}`);
+  }
+  if (opts.min !== undefined && n < opts.min) {
+    throw new Error(`Env var ${name} must be >= ${opts.min}, got: ${n}`);
+  }
+  if (opts.max !== undefined && n > opts.max) {
+    throw new Error(`Env var ${name} must be <= ${opts.max}, got: ${n}`);
+  }
+  return n;
+}
+
+/** Optional integer env var: returns undefined when unset/empty. */
+function intEnvOptional(name: string, opts: { min?: number; max?: number } = {}): number | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return undefined;
   const n = Number(raw);
   if (!Number.isFinite(n) || !Number.isInteger(n)) {
     throw new Error(`Env var ${name} must be an integer, got: ${raw}`);
@@ -89,6 +111,21 @@ export function loadConfig(): AppConfig {
     throw new Error(`Invalid num-ctx value: ${numCtxRaw}`);
   }
 
+  // Thinking toggle: --think / --no-think flags override OLLAMA_THINK (default off).
+  let think: boolean;
+  if (process.argv.includes('--think')) think = true;
+  else if (process.argv.includes('--no-think')) think = false;
+  else think = boolEnv('OLLAMA_THINK', false);
+
+  const numPredictRaw = getArgValue('--num-predict');
+  const numPredict =
+    numPredictRaw !== undefined
+      ? Number(numPredictRaw)
+      : intEnvOptional('OLLAMA_NUM_PREDICT', { min: 1 });
+  if (numPredict !== undefined && (!Number.isFinite(numPredict) || !Number.isInteger(numPredict))) {
+    throw new Error(`Invalid num-predict value: ${numPredictRaw}`);
+  }
+
   return {
     ollamaBaseUrl: (process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/+$/, ''),
     ollamaModel,
@@ -98,5 +135,7 @@ export function loadConfig(): AppConfig {
     temperature,
     topP,
     numCtx,
+    think,
+    numPredict,
   };
 }

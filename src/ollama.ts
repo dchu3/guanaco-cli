@@ -25,6 +25,10 @@ export interface OllamaClientOptions {
   timeoutMs: number;
   fetchImpl?: typeof fetch;
   modelOptions?: Record<string, unknown>;
+  // Prepended as a `system` message to every chat turn when set.
+  systemPrompt?: string;
+  // Top-level Ollama `think` flag (qwen3 reasoning). undefined = omit (model default).
+  think?: boolean;
 }
 
 export interface ChatOptions {
@@ -84,6 +88,8 @@ export class OllamaClient {
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
   private readonly modelOptions?: Record<string, unknown>;
+  private readonly systemPrompt?: string;
+  private readonly think?: boolean;
 
   constructor(opts: OllamaClientOptions) {
     this.baseUrlValue = opts.baseUrl.replace(/\/+$/, '');
@@ -91,6 +97,8 @@ export class OllamaClient {
     this.timeoutMs = opts.timeoutMs;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.modelOptions = opts.modelOptions;
+    this.systemPrompt = opts.systemPrompt;
+    this.think = opts.think;
   }
 
   get currentModel(): string {
@@ -111,7 +119,9 @@ export class OllamaClient {
     const maxSteps = Math.max(0, options.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS);
     // Work on a local copy so we don't append tool_calls / tool messages to
     // the caller's history unless they choose to integrate them.
-    const working: Message[] = [...messages];
+    const working: Message[] = this.systemPrompt
+      ? [{ role: 'system', content: this.systemPrompt }, ...messages]
+      : [...messages];
 
     for (let step = 0; step <= maxSteps; step++) {
       // On the final permitted step, suppress tool definitions so a
@@ -203,6 +213,7 @@ export class OllamaClient {
     };
     if (tools && tools.length > 0) payload.tools = tools;
     if (this.modelOptions) payload.options = this.modelOptions;
+    if (this.think !== undefined) payload.think = this.think;
     const body = JSON.stringify(payload);
 
     const controller = new AbortController();
@@ -269,6 +280,7 @@ export class OllamaClient {
     };
     if (tools && tools.length > 0) payload.tools = tools;
     if (this.modelOptions) payload.options = this.modelOptions;
+    if (this.think !== undefined) payload.think = this.think;
     const body = JSON.stringify(payload);
 
     const controller = new AbortController();
