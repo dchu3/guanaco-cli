@@ -1,12 +1,12 @@
 {
-  "name": "guanaco-cli",
+  "name": "ollama-cli-template",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Interactive CLI for connecting to local LLMs via Ollama. Guanaco is a wild version of Llama.",
+  "description": "A starter template for building local-first, Ollama-powered command-line apps in TypeScript — polished TUI, streaming, config/env handling, and a slash-command shell.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "guanaco": "bin/guanaco.js"
+    "ollama-cli": "bin/ollama-cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -14,27 +14,30 @@
     "dev:watch": "tsx watch --clear-screen=false --env-file-if-exists=.env src/index.ts",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "test": "vitest run",
-    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "postinstall": "patch-package"
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\""
   },
+  "keywords": [
+    "ollama",
+    "cli",
+    "template",
+    "typescript",
+    "llm",
+    "local-llm",
+    "starter",
+    "tui"
+  ],
   "dependencies": {
     "@earendil-works/pi-tui": "^0.74.0",
-    "@mastra/core": "^1.43.0",
     "chalk": "^5.6.2",
     "marked": "^18.0.3",
-    "ollama-ai-provider": "^1.2.0",
     "ora": "^9.4.0",
-    "picocolors": "^1.1.1",
-    "picomatch": "^4.0.4",
-    "zod": "^3.25.76"
+    "picocolors": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
-    "@types/picomatch": "^4.0.3",
     "@typescript-eslint/eslint-plugin": "^7.11.0",
     "@typescript-eslint/parser": "^7.11.0",
     "eslint": "^8.57.0",
-    "patch-package": "^8.0.1",
     "prettier": "^3.3.0",
     "tsx": "^4.11.0",
     "typescript": "^5.4.5",

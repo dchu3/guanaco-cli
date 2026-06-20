@@ -18,12 +18,6 @@ import {
 import chalk from 'chalk';
 import type { OllamaClient } from './ollama.js';
 import type { ToolRegistry } from './tools.js';
-import type { HarnessConfig, SdlcRole } from './config.js';
-import type { SdlcAgents } from './mastra/agents.js';
-import { DEFAULT_ROLE_MODELS } from './mastra/models.js';
-import { HarnessRunner } from './harness/runner.js';
-import type { GitOps } from './harness/git.js';
-import type { HarnessHooks, HarnessStep } from './harness/types.js';
 import { layoutToFit, type ChatRegions } from './ui/layout.js';
 import { COMMANDS, formatCommandList, isBareSlash } from './commands.js';
 import { getLogFile, tailLog, logSizeBytes, logError } from './util/log.js';
@@ -32,9 +26,6 @@ export interface CliDeps {
   ollama: OllamaClient;
   tools: ToolRegistry;
   streamEnabled: boolean;
-  harnessAgents?: SdlcAgents;
-  harnessConfig?: HarnessConfig;
-  gitOps?: GitOps;
 }
 
 const MARKDOWN_THEME: MarkdownTheme = {
@@ -63,25 +54,6 @@ const EDITOR_THEME: EditorTheme = {
     scrollInfo: (text: string) => chalk.dim(text),
     noMatch: (text: string) => chalk.red(text),
   },
-};
-
-const AGENT_LABEL: Record<SdlcRole, string> = {
-  orchestrator: 'Orchestrator',
-  product: 'Product',
-  architect: 'Architect',
-  coder: 'Coder',
-  reviewer: 'Reviewer',
-  tester: 'Tester',
-};
-
-const STEP_LABEL: Record<HarnessStep, string> = {
-  intake: 'Intake',
-  requirements: 'Requirements',
-  design: 'Design',
-  implement: 'Implement',
-  review: 'Review',
-  test: 'Test',
-  finalize: 'Finalize',
 };
 
 const execAsync = promisify(exec);
@@ -116,8 +88,8 @@ export async function startCli(deps: CliDeps): Promise<void> {
   editorContainer.addChild(editor);
   ui.setFocus(editor);
 
-  // Animated spinner shown in the status region while the assistant / harness
-  // is processing. The Loader drives its own 80ms frame animation and calls
+  // Animated spinner shown in the status region while the assistant is
+  // processing. The Loader drives its own 80ms frame animation and calls
   // `ui.requestRender()` each tick (an unforced differential update — never a
   // \x1b[2J clear). It's stopped on construction and started on demand by
   // `startSpinner`; removed from the status container when idle.
@@ -128,12 +100,12 @@ export async function startCli(deps: CliDeps): Promise<void> {
   // commands (filtered as you type, Tab/Enter completes). Built from the same
   // `COMMANDS` catalogue as `/help` and the bare-`/` listing so they never
   // drift. `basePath` enables the @-path file completions too. Show the whole
-  // catalogue at once (only 8 commands) instead of paginating 5-up.
+  // catalogue at once instead of paginating 5-up.
   //
   // NOTE: CombinedAutocompleteProvider expects slash-command names WITHOUT the
   // leading '/' — it prepends the '/' itself in applyCompletion()
-  // (`${beforePrefix}/${item.value} `). Passing '/feature' would complete to
-  // '//feature'. `COMMANDS` keeps the '/' for dispatch/display, so strip it here.
+  // (`${beforePrefix}/${item.value} `). Passing '/model' would complete to
+  // '//model'. `COMMANDS` keeps the '/' for dispatch/display, so strip it here.
   const slashCommands: SlashCommand[] = COMMANDS.map((c) => ({
     name: c.name.slice(1),
     description: c.description,
@@ -179,35 +151,23 @@ export async function startCli(deps: CliDeps): Promise<void> {
   // exactly the flicker we are avoiding.
   //
   // Called on discrete chat mutations (add message, status change, streaming
-  // setText, /clear, harness hooks, footer refresh) — never on every
-  // keystroke. While typing, only the editor changes (it sits inside the
-  // visible viewport at the bottom), so it renders as a small differential
-  // update with no full-render. Trimming/filler-sizing on each keystroke would
-  // shift chat from above the viewport once content overflows `rows`,
-  // triggering pi-tui's `firstChanged < prevViewportTop` → fullRender(true)
-  // full-screen clear — the "screen refreshes when I type" symptom.
+  // setText, /clear, footer refresh) — never on every keystroke. While typing,
+  // only the editor changes (it sits inside the visible viewport at the
+  // bottom), so it renders as a small differential update with no full-render.
+  // Trimming/filler-sizing on each keystroke would shift chat from above the
+  // viewport once content overflows `rows`, triggering pi-tui's
+  // `firstChanged < prevViewportTop` → fullRender(true) full-screen clear — the
+  // "screen refreshes when I type" symptom.
   function renderChat(): void {
     layoutToFit(regions, { columns: ui.terminal.columns, rows: ui.terminal.rows });
     ui.requestRender();
   }
 
-  let activeRunner: HarnessRunner | undefined;
-  // Abort controller for the in-flight harness run; Esc aborts it so the user
-  // can stop a hung/slow agent flow without quitting the app.
-  let activeAbort: AbortController | undefined;
-
   function renderHeader(): void {
     headerContainer.clear();
     headerContainer.addChild(new Spacer(1));
-    headerContainer.addChild(new Text(chalk.bold.cyan('Guanaco CLI 🦙  ·  SDLC harness'), 1, 0));
-    const provider = deps.harnessConfig?.provider ?? 'local';
-    headerContainer.addChild(
-      new Text(
-        chalk.dim(`Model: ${deps.ollama.currentModel}  ·  chat provider: ${provider}`),
-        1,
-        0,
-      ),
-    );
+    headerContainer.addChild(new Text(chalk.bold.cyan('Ollama CLI'), 1, 0));
+    headerContainer.addChild(new Text(chalk.dim(`Model: ${deps.ollama.currentModel}`), 1, 0));
     headerContainer.addChild(new Spacer(1));
     renderChat();
   }
@@ -224,24 +184,6 @@ export async function startCli(deps: CliDeps): Promise<void> {
     }
     chatContainer.addChild(new Spacer(1));
     const msg = new Markdown(`${prefix}\n${content}`, 1, 0, MARKDOWN_THEME);
-    chatContainer.addChild(msg);
-    renderChat();
-    return msg;
-  }
-
-  function addAgentMessage(role: SdlcRole, content: string): Markdown {
-    chatContainer.addChild(new Spacer(1));
-    // An agent that returns no tokens would otherwise render as a bare
-    // `[Role]` header with nothing under it — which looks like a UI bug
-    // (e.g. "I don't see any orchestrator plan above"). Surface the empty
-    // result explicitly so it's diagnosable.
-    const body = content.trim().length > 0 ? content : chalk.dim('_(no output from model)_');
-    const msg = new Markdown(
-      `${chalk.bold.magenta(`[${AGENT_LABEL[role]}]`)}\n${body}`,
-      1,
-      0,
-      MARKDOWN_THEME,
-    );
     chatContainer.addChild(msg);
     renderChat();
     return msg;
@@ -299,9 +241,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
 
   /**
    * Refresh the footer: paint the PWD synchronously, then resolve the current
-   * git branch (independent of the harness `gitOps`, so it works without the
-   * harness configured) and update the line. Branch may change after a
-   * `/feature` run creates one, so call after harness runs and on startup.
+   * git branch and update the line.
    */
   async function refreshFooter(): Promise<void> {
     setFooterLine();
@@ -342,19 +282,6 @@ export async function startCli(deps: CliDeps): Promise<void> {
     return undefined;
   });
 
-  // Esc stops the in-flight harness run. Let the editor keep Esc when its
-  // autocomplete dropdown is open (it closes the dropdown); only abort when a
-  // run is active. Input listeners run before the focused component and
-  // `consume: true` stops the editor from also processing the key.
-  ui.addInputListener((data) => {
-    if (!matchesKey(data, 'escape')) return undefined;
-    if (editor.isShowingAutocomplete()) return undefined;
-    if (!activeAbort) return undefined;
-    activeAbort.abort('user');
-    showStatus('Stopping…');
-    return { consume: true };
-  });
-
   // Initial footer (PWD + git branch) below the input box.
   void refreshFooter();
 
@@ -366,7 +293,6 @@ export async function startCli(deps: CliDeps): Promise<void> {
 
     if (trimmed.startsWith('/')) {
       const [cmd, ...args] = trimmed.split(' ');
-      const rest = trimmed.slice(cmd.length).trim();
 
       if (isBareSlash(trimmed)) {
         addMessage('system', formatCommandList());
@@ -391,21 +317,8 @@ export async function startCli(deps: CliDeps): Promise<void> {
           showStatus('Usage: /model <name>');
         }
         continue;
-      } else if (cmd === '/agents') {
-        listAgents();
-        continue;
-      } else if (cmd === '/harness-status') {
-        harnessStatus();
-        continue;
       } else if (cmd === '/log') {
         showLog();
-        continue;
-      } else if (cmd === '/feature') {
-        if (!rest) {
-          showStatus('Usage: /feature <description of the feature to implement>');
-          continue;
-        }
-        await runHarness(rest);
         continue;
       } else if (cmd === '/help') {
         addMessage('system', formatCommandList());
@@ -439,7 +352,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
       }
     }
 
-    // Default: legacy single-agent chat via the OllamaClient.
+    // Default: single-agent chat via the OllamaClient.
     addMessage('user', trimmed);
     const assistantMsg = addMessage('assistant', '...');
     let fullResponse = '';
@@ -469,40 +382,6 @@ export async function startCli(deps: CliDeps): Promise<void> {
     }
   }
 
-  function listAgents(): void {
-    if (!deps.harnessConfig || !deps.harnessAgents) {
-      addMessage('system', 'Harness not configured.');
-      return;
-    }
-    const cfg = deps.harnessConfig;
-    const lines = ['SDLC agents:', ''];
-    (Object.keys(DEFAULT_ROLE_MODELS) as SdlcRole[]).forEach((role) => {
-      const model = cfg.roleModels[role] ?? DEFAULT_ROLE_MODELS[role];
-      lines.push(`- ${AGENT_LABEL[role]}  ·  ${model}  ·  ${cfg.provider}`);
-    });
-    lines.push('', `Provider: ${cfg.provider}  ·  Repo: ${cfg.repoRoot}`);
-    addMessage('system', lines.join('\n'));
-  }
-
-  function harnessStatus(): void {
-    if (!activeRunner) {
-      addMessage('system', 'No harness run yet. Start one with /feature <prompt>.');
-      return;
-    }
-    const s = activeRunner.status();
-    addMessage(
-      'system',
-      [
-        `Step: ${STEP_LABEL[s.step]}`,
-        `Review attempts: ${s.reviewAttempts}`,
-        `Test attempts: ${s.testAttempts}`,
-        `Reviewer verdict: ${s.lastReviewerVerdict ?? '—'}`,
-        `Tester verdict: ${s.lastTesterVerdict ?? '—'}`,
-        `Turns logged: ${s.log.length}`,
-      ].join('\n'),
-    );
-  }
-
   /** `/log`: show the debug log file path + a tail of recent entries, so errors
    *  that the TUI overwrote on screen can be recovered in-app. */
   function showLog(): void {
@@ -524,88 +403,6 @@ export async function startCli(deps: CliDeps): Promise<void> {
       .filter((l, i, arr) => !(l === '' && (i === 0 || i === arr.length - 1)))
       .join('\n');
     addMessage('system', body);
-  }
-
-  async function runHarness(prompt: string): Promise<void> {
-    if (!deps.harnessAgents || !deps.harnessConfig || !deps.gitOps) {
-      addMessage('system', 'Harness not configured (agents/config/git missing).');
-      return;
-    }
-
-    addMessage('user', `/feature ${prompt}`);
-    startSpinner('Starting SDLC harness…');
-
-    const hooks: HarnessHooks = {
-      onStep: (step, phase) => {
-        startSpinner(`${phase === 'start' ? '▶' : '✔'} ${STEP_LABEL[step]}`);
-      },
-      // NOTE: intentionally no `onAgentDelta` hook — agent "thinking" is NOT
-      // streamed to the console. The runner still emits deltas (useful for
-      // logs/debug/abort), but we only render the completed result once the
-      // turn finishes, via `onAgentMessage`. While an agent works the user just
-      // sees the spinner + step label from `onStep`.
-      onAgentMessage: (role, text) => {
-        addAgentMessage(role, text);
-        renderChat();
-      },
-      onInfo: (text) => {
-        addMessage('system', chalk.dim(text));
-      },
-      onSuspend: async (_reason, ask) => {
-        // The `⚠ Review …` system message above is the cue to type; the input
-        // box is always visible at the bottom, so an extra "Awaiting your
-        // input" status line is just noise. stopSpinner() clears the status
-        // region; we leave it blank while we wait for the user.
-        addMessage('system', chalk.bold.yellow(`⚠ ${ask}`));
-        stopSpinner();
-        const answer = await nextInput();
-        return answer;
-      },
-    };
-
-    const runner = new HarnessRunner({
-      agents: deps.harnessAgents,
-      config: deps.harnessConfig,
-      git: deps.gitOps,
-      hooks,
-    });
-    activeRunner = runner;
-    const abort = new AbortController();
-    activeAbort = abort;
-
-    try {
-      const result = await runner.run(prompt, abort.signal);
-      if (result.endReason === 'aborted') {
-        addMessage('system', chalk.yellow('Harness stopped.'));
-      } else if (result.endReason === 'timeout') {
-        addMessage(
-          'system',
-          chalk.yellow(
-            `Harness stopped: a planning agent turn stalled (no tokens for HARNESS_AGENT_TIMEOUT_MS). Work-loop timeouts (coder/reviewer/tester) recover automatically; only a stalled plan/design/summary stops the run. ` +
-              result.summary,
-          ),
-        );
-      } else {
-        const tail = [
-          `Harness finished: ${result.endReason}`,
-          result.branch ? `Branch: ${result.branch}` : null,
-          result.commit ? `Commit: ${result.commit.slice(0, 9)}` : null,
-        ]
-          .filter(Boolean)
-          .join('\n');
-        addMessage('system', chalk.bold.cyan(tail));
-      }
-    } catch (err) {
-      logError('harness', err);
-      addMessage('system', chalk.red(`Harness error: ${err instanceof Error ? err.message : String(err)}`));
-    } finally {
-      stopSpinner();
-      activeRunner = undefined;
-      activeAbort = undefined;
-      // A harness run may create+checkout a branch; refresh the footer so it
-      // reflects the new git branch below the input box.
-      void refreshFooter();
-    }
   }
 }
 

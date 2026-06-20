@@ -3,10 +3,6 @@ dist/
 .env
 .env.local
 *.log
-.guanaco/
+.ollama-cli/
 .DS_Store
 coverage/
-.gemini_security/
-.npx_cache/
-conductor/
-chat.db*
