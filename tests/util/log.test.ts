@@ -3,28 +3,28 @@ import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// These tests set OLLAMA_CLI_LOG_FILE to a temp path so they never touch the
-// real ~/.ollama-cli/logs/debug.log. captureStderr mutates the global
+// These tests set GUANACO_CLI_LOG_FILE to a temp path so they never touch the
+// real ~/.guanaco-cli/logs/debug.log. captureStderr mutates the global
 // process.stderr.write; we restore it in afterEach.
 let dir: string;
 let logPath: string;
 let savedStderrWrite: typeof process.stderr.write;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'ollama-cli-log-'));
+  dir = await mkdtemp(join(tmpdir(), 'guanaco-cli-log-'));
   logPath = join(dir, 'debug.log');
-  process.env.OLLAMA_CLI_LOG_FILE = logPath;
+  process.env.GUANACO_CLI_LOG_FILE = logPath;
   savedStderrWrite = process.stderr.write.bind(process.stderr);
 });
 
 afterEach(async () => {
   process.stderr.write = savedStderrWrite;
-  delete process.env.OLLAMA_CLI_LOG_FILE;
+  delete process.env.GUANACO_CLI_LOG_FILE;
   await rm(dir, { recursive: true, force: true });
 });
 
 describe('file logger', () => {
-  it('getLogFile resolves OLLAMA_CLI_LOG_FILE to an absolute path and creates the dir', async () => {
+  it('getLogFile resolves GUANACO_CLI_LOG_FILE to an absolute path and creates the dir', async () => {
     const { getLogFile } = await import('../../src/util/log.js');
     expect(getLogFile()).toBe(logPath);
   });
@@ -79,7 +79,7 @@ describe('file logger', () => {
     // Point the log path inside an existing *file* (not a dir) so mkdirSync
     // fails; the logger must swallow that and never throw.
     await writeFile(join(dir, 'blocker'), 'x');
-    process.env.OLLAMA_CLI_LOG_FILE = join(dir, 'blocker', 'log.log');
+    process.env.GUANACO_CLI_LOG_FILE = join(dir, 'blocker', 'log.log');
     vi.resetModules();
     const { logError, getLogFile } = await import('../../src/util/log.js');
     expect(getLogFile()).toBeUndefined();

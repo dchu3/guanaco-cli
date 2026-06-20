@@ -1,12 +1,12 @@
 {
-  "name": "ollama-cli-template",
+  "name": "guanaco-cli-template",
   "version": "0.1.0",
   "license": "MIT",
   "description": "A starter template for building local-first, Ollama-powered command-line apps in TypeScript — polished TUI, streaming, config/env handling, and a slash-command shell.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "ollama-cli": "bin/ollama-cli.js"
+    "guanaco-cli": "bin/guanaco-cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

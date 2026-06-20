@@ -28,7 +28,7 @@ async function main(): Promise<void> {
 
   const argv = process.argv.slice(2);
   // Fast-path: print version and exit before constructing the Ollama client so
-  // `ollama-cli --version` works from any folder without a running Ollama.
+  // `guanaco-cli --version` works from any folder without a running Ollama.
   if (wantsVersion(argv)) {
     // eslint-disable-next-line no-console
     console.log(getVersion());
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   const tools = buildToolRegistry({});
 
   // eslint-disable-next-line no-console
-  console.log(`ollama-cli · model=${cfg.ollamaModel} · ollama=${cfg.ollamaBaseUrl}`);
+  console.log(`guanaco-cli · model=${cfg.ollamaModel} · ollama=${cfg.ollamaBaseUrl}`);
   const logFile = getLogFile();
   if (logFile) {
     // eslint-disable-next-line no-console
@@ -59,10 +59,10 @@ async function main(): Promise<void> {
     if (logPathIsInside()) {
       // eslint-disable-next-line no-console
       console.warn(
-        `warning: OLLAMA_CLI_LOG_FILE resolves inside the current repo — log entries may be committed. Use an absolute path outside the repo (or unset OLLAMA_CLI_LOG_FILE for the default ~/.ollama-cli/logs/debug.log).`,
+        `warning: GUANACO_CLI_LOG_FILE resolves inside the current repo — log entries may be committed. Use an absolute path outside the repo (or unset GUANACO_CLI_LOG_FILE for the default ~/.guanaco-cli/logs/debug.log).`,
       );
     }
-    logInfo('startup', `ollama-cli model=${cfg.ollamaModel} ollama=${cfg.ollamaBaseUrl}`);
+    logInfo('startup', `guanaco-cli model=${cfg.ollamaModel} ollama=${cfg.ollamaBaseUrl}`);
   }
 
   const shutdown = (signal: string) => () => {
