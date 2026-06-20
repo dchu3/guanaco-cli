@@ -55,85 +55,6 @@ npm start -- --model qwen2.5-coder:3b
 OLLAMA_PROVIDER=cloud OLLAMA_API_KEY=sk-... npm start
 ```
 
-### Global `guanaco` command (run the harness in any repo)
-
-The package exposes a `guanaco` bin. No `sudo`, no `npm link`.
-
-**From scratch (one line, no manual clone):**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/dchu3/guanaco-cli/main/scripts/remote-install.sh | bash
-```
-
-That clones the repo to `~/.local/share/guanaco-cli`, builds it, and installs
-the `guanaco` shim on your `PATH`. (To audit the script first, download it
-instead of piping: `curl -fsSL …/remote-install.sh -o /tmp/guanaco-install.sh`,
-read it, then `bash /tmp/guanaco-install.sh`.) Pin a version with
-`GUANACO_REF=<tag-or-branch>`, steer the clone dir with `GUIANACO_HOME=<dir>`,
-or point at a fork with `GUIANACO_REPO=<git-url>`.
-
-**From an existing checkout:**
-
-```bash
-bash scripts/install.sh          # or: npm run install:cli
-```
-
-If `~/.local/bin` isn't on your `PATH`, the installer appends a markered
-`export PATH=...` to your shell rc and tells you to open a new shell. Undo
-with `bash scripts/uninstall.sh` (or `npm run uninstall:cli`).
-
-To update later, from **any** folder:
-
-```bash
-guanaco update                 # git pull + rebuild + refresh the shim
-```
-
-(`guanaco update` refuses to pull over uncommitted local changes in the repo
-it was installed from; commit/stash first. Equivalent to `bash scripts/update.sh`
-or `npm run update:cli`.)
-
-Now from **any** git repo:
-
-```bash
-cd /path/to/other-repo
-guanaco                      # HARNESS_REPO_ROOT defaults to the current dir
-/feature add a /hello command that prints a greeting
-guanaco --version             # prints the installed version
-```
-
-The wrapper loads env config from `~/.config/guanaco/.env` (global) and your
-current directory's `.env` (per-repo override; see [Environment variables](#environment-variables))
-and runs the compiled app — no `tsx watch`, so no file-watch restarts. Point it
-at a repo elsewhere with `HARNESS_REPO_ROOT`:
-
-```bash
-HARNESS_REPO_ROOT=/path/to/other-repo guanaco
-# or override per-role models inline:
-HARNESS_MODEL_CODER=qwen2.5-coder:7b guanaco
-```
-
-If you haven't built yet, `guanaco` prints a reminder to run `npm run build`.
-
-<details><summary>Alternative: <code>npm link</code> (if you have a writable npm prefix)</summary>
-
-```bash
-npm run build
-npm link            # may need sudo, or a user-owned npm prefix
-```
-
-This is equivalent to the installer for users whose npm prefix is user-writable.
-</details>
-
-<details><summary>How the installer chooses its bin dir</summary>
-
-Precedence: `$GUIANACO_BIN_DIR` if set &rarr; first writable dir already on
-`PATH` &rarr; `~/.local/bin` (created if needed). The choice is recorded in
-`~/.config/guanaco/install.env` so `uninstall.sh` is deterministic. The
-launcher is a small bash shim that `exec`s `node <pkgdir>/bin/guanaco.js`, so
-it keeps working after you move around; if the repo is moved/deleted the shim
-prints a friendly "re-run install.sh" message instead of crashing.
-</details>
-
 ## Running the harness
 
 From inside a git repo (the harness operates only within the repo root):
@@ -162,14 +83,8 @@ Plain text (not starting with `/` or `!`) is a regular single-agent chat via the
 
 ## Environment variables
 
-`guanaco` loads env vars from (in override order):
-
-1. **`~/.config/guanaco/.env`** — global config, applies in every repo. Put your
-   usual Ollama URL + model here so you don't need a `.env` in each repo.
-2. **`<cwd>/.env`** — per-repo override (wins over the global).
-
-Only files that exist are loaded (so Node never prints `.env not found`), and
-plain exported env vars from your shell profile work too.
+`guanaco` loads env vars from `<cwd>/.env` (if present), and plain exported
+env vars from your shell profile work too.
 
 | Variable               | Required | Default                  | Notes                                  |
 | ---------------------- | :------: | ------------------------ | -------------------------------------- |
@@ -227,9 +142,6 @@ src/
 | `npm run dev:watch`      | `tsx watch` (Enter restarts in watch mode — caveat)  |
 | `npm run build`          | TypeScript build to `dist/`                          |
 | `npm start`             | Run the compiled app from `dist/`                    |
-| `npm run install:cli`    | Install the global `guanaco` shim via `scripts/install.sh`   |
-| `npm run update:cli`      | Update an existing install via `scripts/update.sh`    |
-| `npm run uninstall:cli`  | Remove the `guanaco` shim via `scripts/uninstall.sh`  |
 | `npm test`              | Run the Vitest suite                                  |
 | `npm run lint`           | ESLint over `src/` and `tests/`                      |
 
