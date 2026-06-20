@@ -259,6 +259,10 @@ export async function startCli(deps: CliDeps): Promise<void> {
     return new Promise<string>((resolve) => {
       editor.onSubmit = (text) => {
         editor.onSubmit = undefined;
+        // Record the submission so Up/Down arrow can recall previous inputs
+        // (the Editor owns the in-memory history ring; max 100, no consecutive
+        // duplicates, empty/skipped).
+        editor.addToHistory(text);
         resolve(text);
       };
     });
