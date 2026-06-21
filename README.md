@@ -4,6 +4,8 @@ A **starter template for building local-first, Ollama-powered command-line apps 
 
 **Not affiliated with Ollama.** Guanaco CLI is an independent, community template that connects to Ollama running on your machine.
 
+<img width="1058" height="538" alt="Image" src="https://github.com/user-attachments/assets/ce5ffae3-4b78-4759-8826-1a054b6f8b58" />
+
 ## Features
 
 - **Polished TUI** (built on [`@earendil-works/pi-tui`](https://github.com/earendil-works/pi)): pinned header, bottom-anchored input box, auto-trimming scrolling chat, animated spinner, and a PWD + git-branch footer.
