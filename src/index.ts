@@ -81,6 +81,7 @@ async function main(): Promise<void> {
     ollama,
     tools,
     streamEnabled: cfg.streamEnabled,
+    appTitle: cfg.appTitle,
   });
 }
 
