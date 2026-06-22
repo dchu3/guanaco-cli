@@ -12,6 +12,8 @@ export interface AppConfig {
   think: boolean;
   // Optional cap on generated tokens per reply.
   numPredict?: number;
+  // App title shown in the top-right of the TUI header.
+  appTitle: string;
 }
 
 function intEnv(name: string, def: number, opts: { min?: number; max?: number } = {}): number {
@@ -137,5 +139,6 @@ export function loadConfig(): AppConfig {
     numCtx,
     think,
     numPredict,
+    appTitle: process.env.APP_TITLE?.trim() || 'Guanaco CLI',
   };
 }

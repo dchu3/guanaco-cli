@@ -26,6 +26,7 @@ export interface CliDeps {
   ollama: OllamaClient;
   tools: ToolRegistry;
   streamEnabled: boolean;
+  appTitle: string;
 }
 
 const MARKDOWN_THEME: MarkdownTheme = {
@@ -166,7 +167,7 @@ export async function startCli(deps: CliDeps): Promise<void> {
   function renderHeader(): void {
     headerContainer.clear();
     headerContainer.addChild(new Spacer(1));
-    headerContainer.addChild(new Text(chalk.bold.cyan('Guanaco CLI'), 1, 0));
+    headerContainer.addChild(new Text(chalk.bold.cyan(deps.appTitle), 1, 0));
     headerContainer.addChild(new Text(chalk.dim(`Model: ${deps.ollama.currentModel}`), 1, 0));
     headerContainer.addChild(new Spacer(1));
     renderChat();
